@@ -1,10 +1,19 @@
+from enum import Enum
+
 from pydantic import BaseModel, EmailStr, ConfigDict
+
+
+class UserRole(str, Enum):
+    admin = "admin"
+    analyst = "analyst"
+    viewer = "viewer"
+
 
 class UserCreate(BaseModel):
     username: str
     email: EmailStr
     password: str
-    role: str = "viewer"
+    role: UserRole = UserRole.viewer
 
 
 class UserLogin(BaseModel):
@@ -16,7 +25,7 @@ class UserResponse(BaseModel):
     id: int
     username: str
     email: EmailStr
-    role: str
+    role: UserRole
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.database.database import get_db
@@ -12,12 +13,10 @@ from app.crud.user import (
     get_user_by_username,
 )
 
-
 router = APIRouter(
     prefix="/auth",
     tags=["Authentication"],
 )
-
 
 # =========================
 # Register User
@@ -29,11 +28,7 @@ def register_user(
     db: Session = Depends(get_db)
 ):
 
-    # Check email already exists
-    existing_email = get_user_by_email(
-        db,
-        user.email
-    )
+    existing_email = get_user_by_email(db, user.email)
 
     if existing_email:
         raise HTTPException(
@@ -41,8 +36,6 @@ def register_user(
             detail="Email already registered"
         )
 
-
-    # Check username already exists
     existing_username = get_user_by_username(
         db,
         user.username
@@ -54,8 +47,6 @@ def register_user(
             detail="Username already exists"
         )
 
-
-    # Create new user
     new_user = create_user(
         db,
         user
@@ -64,9 +55,9 @@ def register_user(
     return new_user
 
 
-
 # =========================
-# Login User
+# Login (JSON)
+# For React Frontend
 # =========================
 
 @router.post("/login")
@@ -75,12 +66,10 @@ def login_user(
     db: Session = Depends(get_db)
 ):
 
-    # Find user by email
     db_user = get_user_by_email(
         db,
         user.email
     )
-
 
     if not db_user:
         raise HTTPException(
@@ -88,8 +77,6 @@ def login_user(
             detail="Invalid email or password"
         )
 
-
-    # Verify password
     if not verify_password(
         user.password,
         db_user.password
@@ -99,8 +86,6 @@ def login_user(
             detail="Invalid email or password"
         )
 
-
-    # Generate JWT token
     access_token = create_access_token(
         data={
             "sub": db_user.email,
@@ -109,13 +94,56 @@ def login_user(
         }
     )
 
-
     return {
         "message": "Login successful",
         "access_token": access_token,
         "token_type": "bearer"
     }
 
+
+# =========================
+# OAuth2 Login
+# For Swagger Authorize
+# =========================
+
+@router.post("/token")
+def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+):
+
+    db_user = get_user_by_email(
+        db,
+        form_data.username
+    )
+
+    if not db_user:
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password"
+        )
+
+    if not verify_password(
+        form_data.password,
+        db_user.password
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password"
+        )
+
+    access_token = create_access_token(
+        data={
+            "sub": db_user.email,
+            "username": db_user.username,
+            "role": db_user.role
+        }
+    )
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer"
+    }
 
 
 # =========================
@@ -127,7 +155,7 @@ def login_user(
     response_model=UserResponse
 )
 def get_logged_in_user(
-    current_user = Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
 
     return current_user

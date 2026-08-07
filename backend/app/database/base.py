@@ -1,6 +1,6 @@
-from sqlalchemy.orm import declarative_base
+from app.database.database import Base
 
-Base = declarative_base()
-
-# Import all models here
-#rom app.models.user import User
+from app.models.user import User
+from app.models.threat import Threat
+from app.models.intelligence import IntelligenceLookup
+from app.models.threat_score import ThreatScore 
