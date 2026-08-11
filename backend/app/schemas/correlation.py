@@ -1,5 +1,4 @@
 from pydantic import BaseModel
-from typing import List
 
 
 class VirusTotalSummary(BaseModel):
@@ -19,7 +18,7 @@ class AbuseIPDBSummary(BaseModel):
 
 class OTXSummary(BaseModel):
     pulse_count: int
-    tags: List[str]
+    tags: list[str]
 
 
 class CorrelationSources(BaseModel):
@@ -33,4 +32,6 @@ class CorrelationResponse(BaseModel):
     threatlens_score: int
     severity: str
     recommendation: str
+    alert_created: bool
+    alert_id: int | None = None
     sources: CorrelationSources

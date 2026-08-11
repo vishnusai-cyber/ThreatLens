@@ -1,17 +1,21 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, DateTime
 from sqlalchemy.sql import func
 
 from app.database.base import Base
 
 
-class ThreatScore(Base):
-
-    __tablename__ = "threat_scores"
+class Alert(Base):
+    __tablename__ = "alerts"
 
     id = Column(
         Integer,
         primary_key=True,
+        index=True
+    )
+
+    threat_score_id = Column(
+        Integer,
+        nullable=True,
         index=True
     )
 
@@ -28,6 +32,17 @@ class ThreatScore(Base):
 
     severity = Column(
         String,
+        nullable=False,
+        index=True
+    )
+
+    title = Column(
+        String,
+        nullable=False
+    )
+
+    description = Column(
+        String,
         nullable=False
     )
 
@@ -36,13 +51,10 @@ class ThreatScore(Base):
         nullable=False
     )
 
-    incident_id = Column(
-        Integer,
-        ForeignKey(
-            "incidents.id",
-            ondelete="CASCADE"
-        ),
-        nullable=True,
+    status = Column(
+        String,
+        nullable=False,
+        default="Open",
         index=True
     )
 
@@ -51,7 +63,7 @@ class ThreatScore(Base):
         server_default=func.now()
     )
 
-    incident = relationship(
-        "Incident",
-        back_populates="threat_scores"
+    resolved_at = Column(
+        DateTime(timezone=True),
+        nullable=True
     )

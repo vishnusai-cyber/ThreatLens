@@ -1,23 +1,97 @@
-from sqlalchemy import Column, Integer, String, DateTime, JSON
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    DateTime,
+    JSON,
+    ForeignKey,
+)
+
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from app.database.database import Base
+from app.database.base import Base
 
 
 class IntelligenceLookup(Base):
+
     __tablename__ = "intelligence_lookups"
 
-    id = Column(Integer, primary_key=True, index=True)
+    # ==========================================================
+    # Primary Key
+    # ==========================================================
 
-    ip = Column(String, nullable=False, index=True)
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
 
-    source = Column(String, nullable=False)
+    # ==========================================================
+    # Incident Foreign Key
+    # ==========================================================
 
-    risk_score = Column(Integer, default=0)
+    incident_id = Column(
+        Integer,
+        ForeignKey(
+            "incidents.id",
+            ondelete="CASCADE",
+        ),
+        nullable=True,
+        index=True,
+    )
 
-    raw_response = Column(JSON, nullable=False)
+    # ==========================================================
+    # IP Address
+    # ==========================================================
+
+    ip = Column(
+        String,
+        nullable=False,
+        index=True,
+    )
+
+    # ==========================================================
+    # Intelligence Source
+    # ==========================================================
+
+    source = Column(
+        String,
+        nullable=False,
+    )
+
+    # ==========================================================
+    # Risk Score
+    # ==========================================================
+
+    risk_score = Column(
+        Integer,
+        default=0,
+    )
+
+    # ==========================================================
+    # Raw Intelligence Response
+    # ==========================================================
+
+    raw_response = Column(
+        JSON,
+        nullable=False,
+    )
+
+    # ==========================================================
+    # Created At
+    # ==========================================================
 
     created_at = Column(
         DateTime(timezone=True),
-        server_default=func.now()
+        server_default=func.now(),
+    )
+
+    # ==========================================================
+    # Incident Relationship
+    # ==========================================================
+
+    incident = relationship(
+        "Incident",
+        back_populates="intelligence_lookups",
     )

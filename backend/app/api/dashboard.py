@@ -12,6 +12,8 @@ from app.crud.dashboard import (
     get_threat_trends,
 )
 
+from app.crud.alert import get_alert_stats
+
 from app.schemas.dashboard import (
     DashboardOverview,
     SeverityItem,
@@ -30,6 +32,7 @@ router = APIRouter(
 # ==========================================================
 # Dashboard Overview
 # ==========================================================
+
 @router.get(
     "/overview",
     response_model=DashboardOverview
@@ -43,6 +46,7 @@ def dashboard_overview(
 # ==========================================================
 # Severity Distribution
 # ==========================================================
+
 @router.get(
     "/severity",
     response_model=list[SeverityItem]
@@ -56,6 +60,7 @@ def severity_distribution(
 # ==========================================================
 # Top Malicious IPs
 # ==========================================================
+
 @router.get(
     "/top-ips",
     response_model=list[TopIP]
@@ -70,6 +75,7 @@ def top_ips(
 # ==========================================================
 # Recent Activity
 # ==========================================================
+
 @router.get(
     "/recent",
     response_model=list[RecentActivity]
@@ -84,6 +90,7 @@ def recent_activity(
 # ==========================================================
 # Intelligence Source Statistics
 # ==========================================================
+
 @router.get(
     "/sources",
     response_model=list[SourceStatistic]
@@ -97,6 +104,7 @@ def source_statistics(
 # ==========================================================
 # Threat Trends
 # ==========================================================
+
 @router.get(
     "/trends",
     response_model=list[TrendItem]
@@ -105,3 +113,16 @@ def threat_trends(
     db: Session = Depends(get_db)
 ):
     return get_threat_trends(db)
+
+
+# ==========================================================
+# Alert Statistics
+# ==========================================================
+
+@router.get(
+    "/alerts"
+)
+def alert_statistics(
+    db: Session = Depends(get_db)
+):
+    return get_alert_stats(db=db)

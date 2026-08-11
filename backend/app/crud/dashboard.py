@@ -8,6 +8,7 @@ from app.models.intelligence import IntelligenceLookup
 # ==========================================================
 # Dashboard Overview
 # ==========================================================
+
 def get_dashboard_overview(db: Session):
 
     total = db.query(ThreatScore).count()
@@ -45,6 +46,7 @@ def get_dashboard_overview(db: Session):
 # ==========================================================
 # Severity Distribution
 # ==========================================================
+
 def get_severity_distribution(db: Session):
 
     result = (
@@ -68,12 +70,46 @@ def get_severity_distribution(db: Session):
 # ==========================================================
 # Top Malicious IPs
 # ==========================================================
+#
+# IMPORTANT:
+# Return only ONE record per IP.
+#
+# If the same IP has been scanned multiple times, we select
+# the highest ThreatLens score for that IP.
+#
+# If two scans have the same score, the newest scan wins.
+# ==========================================================
+
 def get_top_ips(db: Session, limit: int = 10):
 
+    ranked_scores = (
+        db.query(
+            ThreatScore.id.label("id"),
+            ThreatScore.ip_address.label("ip_address"),
+            ThreatScore.threatlens_score.label("score"),
+            ThreatScore.severity.label("severity"),
+            ThreatScore.created_at.label("created_at"),
+
+            func.row_number()
+            .over(
+                partition_by=ThreatScore.ip_address,
+                order_by=(
+                    ThreatScore.threatlens_score.desc(),
+                    ThreatScore.created_at.desc(),
+                    ThreatScore.id.desc(),
+                ),
+            )
+            .label("row_number"),
+        )
+        .subquery()
+    )
+
     results = (
-        db.query(ThreatScore)
+        db.query(ranked_scores)
+        .filter(ranked_scores.c.row_number == 1)
         .order_by(
-            ThreatScore.threatlens_score.desc()
+            ranked_scores.c.score.desc(),
+            ranked_scores.c.created_at.desc(),
         )
         .limit(limit)
         .all()
@@ -82,7 +118,7 @@ def get_top_ips(db: Session, limit: int = 10):
     return [
         {
             "ip_address": row.ip_address,
-            "score": row.threatlens_score,
+            "score": row.score,
             "severity": row.severity,
         }
         for row in results
@@ -92,6 +128,7 @@ def get_top_ips(db: Session, limit: int = 10):
 # ==========================================================
 # Recent Activity
 # ==========================================================
+
 def get_recent_activity(db: Session, limit: int = 10):
 
     results = (
@@ -117,6 +154,7 @@ def get_recent_activity(db: Session, limit: int = 10):
 # ==========================================================
 # Intelligence Source Statistics
 # ==========================================================
+
 def get_source_statistics(db: Session):
 
     results = (
@@ -142,6 +180,7 @@ def get_source_statistics(db: Session):
 # ==========================================================
 # Threat Trends
 # ==========================================================
+
 def get_threat_trends(db: Session):
 
     results = (

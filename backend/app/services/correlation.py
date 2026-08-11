@@ -4,36 +4,80 @@ from app.services.virustotal import VirusTotalService
 from app.services.abuseipdb import AbuseIPDBService
 from app.services.otx import OTXService
 
-from app.crud.threat_score import create_threat_score
+from app.crud.alert import (
+    create_alert,
+    get_alerts,
+)
+
+from app.models.threat_score import ThreatScore
+
+from app.schemas.alert import AlertCreate
 
 
 class CorrelationService:
 
     def __init__(self):
+
         self.vt = VirusTotalService()
         self.abuse = AbuseIPDBService()
         self.otx = OTXService()
 
-    async def correlate_ip(self, ip: str, db: Session):
+    # ==========================================================
+    # Calculate Severity
+    # ==========================================================
 
-        # --------------------------------
-        # Fetch data from intelligence sources
-        # --------------------------------
+    def calculate_severity(
+        self,
+        score: int,
+    ) -> str:
+
+        if score >= 80:
+            return "Critical"
+
+        if score >= 60:
+            return "High"
+
+        if score >= 30:
+            return "Medium"
+
+        return "Low"
+
+    # ==========================================================
+    # Get Recommendation
+    # ==========================================================
+
+    def get_recommendation(
+        self,
+        severity: str,
+    ) -> str:
+
+        if severity == "Critical":
+            return "Block immediately and investigate."
+
+        if severity == "High":
+            return "Investigate immediately and consider blocking."
+
+        if severity == "Medium":
+            return "Investigate and monitor the IP."
+
+        return "No immediate action required."
+
+    # ==========================================================
+    # Correlate IP
+    # ==========================================================
+
+    async def correlate_ip(
+        self,
+        ip: str,
+        db: Session,
+        incident_id: int | None = None,
+    ):
+
+        # ======================================================
+        # VirusTotal
+        # ======================================================
 
         vt_result = await self.vt.get_ip_report(ip)
-
-        abuse_result = await self.abuse.get_ip_report(
-            ip,
-            db
-        )
-
-        otx_result = await self.otx.get_ip_report(
-            ip
-        )
-
-        # --------------------------------
-        # VirusTotal Data
-        # --------------------------------
 
         vt_attributes = vt_result["data"]["attributes"]
 
@@ -42,213 +86,352 @@ class CorrelationService:
             {}
         )
 
-        malicious = vt_stats.get(
+        vt_malicious = vt_stats.get(
             "malicious",
             0
         )
 
-        suspicious = vt_stats.get(
+        vt_suspicious = vt_stats.get(
             "suspicious",
             0
         )
 
-        harmless = vt_stats.get(
+        vt_harmless = vt_stats.get(
             "harmless",
             0
         )
 
-        undetected = vt_stats.get(
+        vt_undetected = vt_stats.get(
             "undetected",
             0
         )
 
-        reputation = vt_attributes.get(
+        vt_reputation = vt_attributes.get(
             "reputation",
             0
         )
 
-        # --------------------------------
-        # AbuseIPDB Data
-        # --------------------------------
+        # ======================================================
+        # AbuseIPDB
+        # ======================================================
 
-        abuse_data = abuse_result["data"]
+        abuse_result = await self.abuse.get_ip_report(
+            ip,
+            db
+        )
 
-        abuse_score = abuse_data.get(
+        abuse_data = abuse_result.get(
+            "data",
+            {}
+        )
+
+        abuse_confidence = abuse_data.get(
             "abuseConfidenceScore",
             0
         )
 
-        total_reports = abuse_data.get(
+        abuse_reports = abuse_data.get(
             "totalReports",
             0
         )
 
-        country = abuse_data.get(
+        abuse_country = abuse_data.get(
             "countryCode"
         )
 
-        isp = abuse_data.get(
+        abuse_isp = abuse_data.get(
             "isp"
         )
 
-        # --------------------------------
-        # OTX Data
-        # --------------------------------
+        # ======================================================
+        # AlienVault OTX
+        # ======================================================
+
+        otx_result = await self.otx.get_ip_report(
+            ip
+        )
 
         pulse_info = otx_result.get(
             "pulse_info",
             {}
         )
 
-        otx_pulses = pulse_info.get(
+        pulse_count = pulse_info.get(
             "count",
             0
         )
 
-        otx_tags = []
-
-        for pulse in pulse_info.get("pulses", []):
-            otx_tags.extend(
-                pulse.get("tags", [])
-            )
-
-        otx_tags = list(set(otx_tags))
-
-        # --------------------------------
-        # ThreatLens Risk Calculation
-        # --------------------------------
-
-        vt_score = (
-            malicious * 10
-        ) + (
-            suspicious * 5
+        pulses = pulse_info.get(
+            "pulses",
+            []
         )
 
-        otx_score = 20 if otx_pulses > 0 else 0
+        # ======================================================
+        # Calculate ThreatLens Score
+        # ======================================================
 
-        threatlens_score = min(
-            vt_score + abuse_score + otx_score,
+        score = 0
+
+        # ------------------------------------------------------
+        # VirusTotal contribution
+        # ------------------------------------------------------
+
+        score += vt_malicious * 2
+
+        score += vt_suspicious
+
+        # ------------------------------------------------------
+        # AbuseIPDB contribution
+        # ------------------------------------------------------
+
+        score += int(
+            abuse_confidence * 0.5
+        )
+
+        # ------------------------------------------------------
+        # OTX contribution
+        # ------------------------------------------------------
+
+        score += min(
+            pulse_count * 2,
+            30
+        )
+
+        # ------------------------------------------------------
+        # VirusTotal reputation
+        # ------------------------------------------------------
+
+        if vt_reputation < 0:
+            score += 10
+
+        # ------------------------------------------------------
+        # Maximum score = 100
+        # ------------------------------------------------------
+
+        score = min(
+            score,
             100
         )
 
+        # ======================================================
+        # Severity
+        # ======================================================
+
         severity = self.calculate_severity(
-            threatlens_score
+            score
         )
+
+        # ======================================================
+        # Recommendation
+        # ======================================================
 
         recommendation = self.get_recommendation(
             severity
         )
 
-        # --------------------------------
+        # ======================================================
         # Save Threat Score
-        # --------------------------------
+        # ======================================================
 
-        create_threat_score(
-            db=db,
+        threat_score = ThreatScore(
             ip_address=ip,
-            threatlens_score=threatlens_score,
+            threatlens_score=score,
             severity=severity,
             recommendation=recommendation,
+            incident_id=incident_id
         )
 
-        # --------------------------------
-        # Final Correlation Result
-        # --------------------------------
+        db.add(threat_score)
+
+        db.commit()
+
+        db.refresh(threat_score)
+
+        # ======================================================
+        # Automatic Alert Generation
+        # ======================================================
+
+        alert_created = False
+
+        alert_id = None
+
+        # ------------------------------------------------------
+        # Only High and Critical threats generate alerts
+        # ------------------------------------------------------
+
+        if severity in (
+            "High",
+            "Critical",
+        ):
+
+            # --------------------------------------------------
+            # Find existing Open alert for this IP
+            # --------------------------------------------------
+
+            existing_alerts = get_alerts(
+                db=db,
+                skip=0,
+                limit=100,
+                status="Open"
+            )
+
+            existing_alert = next(
+                (
+                    alert
+                    for alert in existing_alerts
+                    if alert.ip_address == ip
+                ),
+                None
+            )
+
+            # --------------------------------------------------
+            # Existing alert found
+            # --------------------------------------------------
+
+            if existing_alert:
+
+                alert_created = False
+
+                alert_id = existing_alert.id
+
+            # --------------------------------------------------
+            # Create new alert
+            # --------------------------------------------------
+
+            else:
+
+                title = (
+                    f"{severity} Threat Detected"
+                )
+
+                description = (
+                    f"ThreatLens detected a "
+                    f"{severity.lower()} threat associated "
+                    f"with IP address {ip}. "
+                    f"The calculated ThreatLens score is "
+                    f"{score}."
+                )
+
+                alert_data = AlertCreate(
+                    ip_address=ip,
+                    threatlens_score=score,
+                    severity=severity,
+                    title=title,
+                    description=description,
+                    status="Open",
+                    recommendation=recommendation,
+                    threat_score_id=threat_score.id
+                )
+
+                alert = create_alert(
+                    db=db,
+                    alert_data=alert_data
+                )
+
+                alert_created = True
+
+                alert_id = alert.id
+
+        # ======================================================
+        # OTX Tags
+        # ======================================================
+
+        otx_tags = []
+
+        for pulse in pulses:
+
+            tags = pulse.get(
+                "tags",
+                []
+            )
+
+            if tags:
+
+                otx_tags.extend(
+                    tags
+                )
+
+        # ------------------------------------------------------
+        # Remove duplicate tags
+        # ------------------------------------------------------
+
+        otx_tags = list(
+            dict.fromkeys(
+                otx_tags
+            )
+        )
+
+        # ======================================================
+        # Final Response
+        # ======================================================
 
         return {
 
+            "id": threat_score.id,
+
             "ip": ip,
 
-            "threatlens_score": threatlens_score,
+            "incident_id": incident_id,
+
+            "threatlens_score": score,
 
             "severity": severity,
 
             "recommendation": recommendation,
 
+            "alert_created": alert_created,
+
+            "alert_id": alert_id,
+
             "sources": {
+
+                # ==================================================
+                # VirusTotal
+                # ==================================================
 
                 "virustotal": {
 
-                    "malicious": malicious,
+                    "malicious": vt_malicious,
 
-                    "suspicious": suspicious,
+                    "suspicious": vt_suspicious,
 
-                    "harmless": harmless,
+                    "harmless": vt_harmless,
 
-                    "undetected": undetected,
+                    "undetected": vt_undetected,
 
-                    "reputation": reputation
-
+                    "reputation": vt_reputation,
                 },
+
+                # ==================================================
+                # AbuseIPDB
+                # ==================================================
 
                 "abuseipdb": {
 
-                    "confidence_score": abuse_score,
+                    "confidence_score":
+                        abuse_confidence,
 
-                    "total_reports": total_reports,
+                    "total_reports":
+                        abuse_reports,
 
-                    "country": country,
+                    "country":
+                        abuse_country,
 
-                    "isp": isp
-
+                    "isp":
+                        abuse_isp,
                 },
+
+                # ==================================================
+                # OTX
+                # ==================================================
 
                 "otx": {
 
-                    "pulse_count": otx_pulses,
+                    "pulse_count":
+                        pulse_count,
 
-                    "tags": otx_tags
-
-                }
-
-            }
-
+                    "tags":
+                        otx_tags,
+                },
+            },
         }
-
-    # --------------------------------
-    # Severity Classification
-    # --------------------------------
-
-    def calculate_severity(
-        self,
-        score: int
-    ) -> str:
-
-        if score >= 81:
-            return "Critical"
-
-        elif score >= 51:
-            return "High"
-
-        elif score >= 21:
-            return "Medium"
-
-        else:
-            return "Low"
-
-    # --------------------------------
-    # SOC Recommendation
-    # --------------------------------
-
-    def get_recommendation(
-        self,
-        severity: str
-    ) -> str:
-
-        recommendations = {
-
-            "Critical":
-            "Block immediately and investigate.",
-
-            "High":
-            "Investigate before allowing traffic.",
-
-            "Medium":
-            "Monitor closely and review activity.",
-
-            "Low":
-            "No immediate action required."
-
-        }
-
-        return recommendations[severity]

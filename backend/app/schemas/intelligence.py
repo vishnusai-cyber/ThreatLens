@@ -7,6 +7,7 @@ class IntelligenceHistoryResponse(BaseModel):
     ip: str
     source: str
     risk_score: int
+    incident_id: int | None = None
     created_at: datetime
 
     class Config:
