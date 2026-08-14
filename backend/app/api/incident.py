@@ -4,6 +4,7 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Query,
     status,
 )
 
@@ -44,7 +45,7 @@ from app.services.correlation import (
 
 
 # ==========================================================
-# Router
+# ThreatLens - Incident API
 # ==========================================================
 
 router = APIRouter(
@@ -52,16 +53,11 @@ router = APIRouter(
     tags=["Incidents"],
 )
 
-
-# ==========================================================
-# Correlation Service
-# ==========================================================
-
 correlation_service = CorrelationService()
 
 
 # ==========================================================
-# Create Incident
+# CREATE INCIDENT
 # ==========================================================
 
 @router.post(
@@ -73,30 +69,57 @@ def create_incident_endpoint(
     incident_data: IncidentCreate,
     db: Session = Depends(get_db),
 ):
-    """
-    Create a new security incident.
-    """
-
     try:
-
         return create_incident(
-            db,
-            incident_data,
+            db=db,
+            incident_data=incident_data,
         )
 
     except Exception as e:
-
         db.rollback()
 
+        print("CREATE INCIDENT ERROR:")
+        print(str(e))
+
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,
             detail=f"Failed to create incident: {str(e)}",
         )
 
 
 # ==========================================================
-# Get Incident Statistics
+# GET ALL INCIDENTS
 # ==========================================================
+
+@router.get(
+    "",
+    response_model=List[IncidentResponse],
+)
+def get_all_incidents(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    return get_incidents(
+        db=db,
+        skip=skip,
+        limit=limit,
+    )
+
+
+# ==========================================================
+# INCIDENT STATISTICS
+# ==========================================================
+
+@router.get(
+    "/stats",
+    response_model=IncidentStats,
+)
+def incident_statistics_short(
+    db: Session = Depends(get_db),
+):
+    return get_incident_stats(db)
+
 
 @router.get(
     "/statistics/summary",
@@ -105,295 +128,70 @@ def create_incident_endpoint(
 def incident_statistics(
     db: Session = Depends(get_db),
 ):
-    """
-    Get incident statistics.
-    """
-
-    return get_incident_stats(
-        db
-    )
+    return get_incident_stats(db)
 
 
 # ==========================================================
-# Incident Dashboard - Overview
+# INCIDENT DASHBOARD
 # ==========================================================
 
 @router.get(
-    "/dashboard/overview"
+    "/dashboard/overview",
 )
 def incident_dashboard_overview(
     db: Session = Depends(get_db),
 ):
-    """
-    Get overall incident dashboard overview.
-    """
+    return get_incident_dashboard_overview(db)
 
-    return get_incident_dashboard_overview(
-        db
-    )
-
-
-# ==========================================================
-# Incident Dashboard - Severity Distribution
-# ==========================================================
 
 @router.get(
-    "/dashboard/incidents/severity"
+    "/dashboard/incidents/severity",
 )
 def incident_severity_distribution(
     db: Session = Depends(get_db),
 ):
-    """
-    Get incident counts grouped by severity.
-    """
+    return get_incident_severity_distribution(db)
 
-    return get_incident_severity_distribution(
-        db
-    )
-
-
-# ==========================================================
-# Incident Dashboard - Status Distribution
-# ==========================================================
 
 @router.get(
-    "/dashboard/incidents/status"
+    "/dashboard/incidents/status",
 )
 def incident_status_distribution(
     db: Session = Depends(get_db),
 ):
-    """
-    Get incident counts grouped by status.
-    """
+    return get_incident_status_distribution(db)
 
-    return get_incident_status_distribution(
-        db
-    )
-
-
-# ==========================================================
-# Incident Dashboard - Recent Incidents
-# ==========================================================
 
 @router.get(
-    "/dashboard/recent"
+    "/dashboard/recent",
 )
 def incident_dashboard_recent(
-    limit: int = 10,
+    limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    """
-    Get recently created incidents.
-    """
-
-    if limit < 1:
-
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Limit must be greater than 0",
-        )
-
-    if limit > 100:
-
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Limit cannot exceed 100",
-        )
-
     return get_recent_incidents(
-        db,
+        db=db,
         limit=limit,
     )
 
 
-# ==========================================================
-# Incident Dashboard - Activity
-# ==========================================================
-
 @router.get(
-    "/dashboard/activity"
+    "/dashboard/activity",
 )
 def incident_dashboard_activity(
-    limit: int = 10,
+    limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    """
-    Get recent incident activity.
-    """
-
-    if limit < 1:
-
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Limit must be greater than 0",
-        )
-
-    if limit > 100:
-
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Limit cannot exceed 100",
-        )
-
     return get_incident_activity(
-        db,
+        db=db,
         limit=limit,
     )
 
 
 # ==========================================================
-# Get All Incidents
-# ==========================================================
-
-@router.get(
-    "",
-    response_model=List[IncidentResponse],
-)
-def get_all_incidents(
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db),
-):
-    """
-    Get all incidents with pagination.
-    """
-
-    return get_incidents(
-        db,
-        skip=skip,
-        limit=limit,
-    )
-
-
-# ==========================================================
-# Get Incident By ID
-# ==========================================================
-
-@router.get(
-    "/{incident_id}",
-    response_model=IncidentResponse,
-)
-def get_single_incident(
-    incident_id: int,
-    db: Session = Depends(get_db),
-):
-    """
-    Get a single incident by ID.
-    """
-
-    incident = get_incident_by_id(
-        db,
-        incident_id,
-    )
-
-    if not incident:
-
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Incident not found",
-        )
-
-    return incident
-
-
-# ==========================================================
-# Update Incident
-# ==========================================================
-
-@router.put(
-    "/{incident_id}",
-    response_model=IncidentResponse,
-)
-def update_incident_endpoint(
-    incident_id: int,
-    incident_data: IncidentUpdate,
-    db: Session = Depends(get_db),
-):
-    """
-    Update an existing incident.
-    """
-
-    incident = get_incident_by_id(
-        db,
-        incident_id,
-    )
-
-    if not incident:
-
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Incident not found",
-        )
-
-    try:
-
-        return update_incident(
-            db,
-            incident_id,
-            incident_data,
-        )
-
-    except Exception as e:
-
-        db.rollback()
-
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update incident: {str(e)}",
-        )
-
-
-# ==========================================================
-# Delete Incident
-# ==========================================================
-
-@router.delete(
-    "/{incident_id}",
-)
-def delete_incident_endpoint(
-    incident_id: int,
-    db: Session = Depends(get_db),
-):
-    """
-    Delete an incident.
-    """
-
-    incident = get_incident_by_id(
-        db,
-        incident_id,
-    )
-
-    if not incident:
-
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Incident not found",
-        )
-
-    try:
-
-        delete_incident(
-            db,
-            incident_id,
-        )
-
-        return {
-            "message": "Incident deleted successfully",
-            "incident_id": incident_id,
-        }
-
-    except Exception as e:
-
-        db.rollback()
-
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete incident: {str(e)}",
-        )
-
-
-# ==========================================================
-# Incident Intelligence
+# INCIDENT INTELLIGENCE
+# IMPORTANT:
+# These routes are deliberately ABOVE /{incident_id}
 # ==========================================================
 
 @router.get(
@@ -401,69 +199,24 @@ def delete_incident_endpoint(
 )
 def get_incident_intelligence(
     incident_id: int,
-    limit: int = 10,
-    offset: int = 0,
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
     """
-    Get intelligence lookups associated with an incident.
+    Get intelligence associated with an incident.
     """
 
-    # ------------------------------------------------------
-    # Validate pagination
-    # ------------------------------------------------------
-
-    if limit < 1:
-
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Limit must be greater than 0",
-        )
-
-    if limit > 100:
-
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Limit cannot exceed 100",
-        )
-
-    if offset < 0:
-
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Offset cannot be negative",
-        )
-
-    # ------------------------------------------------------
-    # Check incident
-    # ------------------------------------------------------
-
     incident = get_incident_by_id(
-        db,
-        incident_id,
+        db=db,
+        incident_id=incident_id,
     )
 
     if not incident:
-
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=404,
             detail="Incident not found",
         )
-
-    # ------------------------------------------------------
-    # Check IP
-    # ------------------------------------------------------
-
-    if not incident.ip_address:
-
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Incident does not contain an IP address",
-        )
-
-    # ------------------------------------------------------
-    # Get intelligence
-    # ------------------------------------------------------
 
     intelligence = get_intelligence_by_incident(
         db=db,
@@ -476,20 +229,30 @@ def get_incident_intelligence(
         "incident": {
             "id": incident.id,
             "title": incident.title,
+            "description": incident.description,
             "severity": incident.severity,
             "status": incident.status,
-            "ip_address": str(
-                incident.ip_address
+            "ip_address": (
+                str(incident.ip_address)
+                if incident.ip_address
+                else None
             ),
+            "created_at": incident.created_at,
+            "updated_at": incident.updated_at,
+        },
+        "filters": {
+            "incident_id": incident_id,
+        },
+        "pagination": {
+            "limit": limit,
+            "offset": offset,
         },
         "intelligence": intelligence,
-        "limit": limit,
-        "offset": offset,
     }
 
 
 # ==========================================================
-# Calculate Incident Threat Score
+# INCIDENT THREAT SCORE
 # ==========================================================
 
 @router.get(
@@ -499,56 +262,26 @@ async def get_incident_score(
     incident_id: int,
     db: Session = Depends(get_db),
 ):
-    """
-    Calculate a fresh ThreatLens score for an incident.
-
-    The incident IP is sent through:
-
-        VirusTotal
-        AbuseIPDB
-        AlienVault OTX
-
-    The resulting ThreatScore is associated
-    with the incident.
-    """
-
-    # ------------------------------------------------------
-    # Check incident
-    # ------------------------------------------------------
-
     incident = get_incident_by_id(
-        db,
-        incident_id,
+        db=db,
+        incident_id=incident_id,
     )
 
     if not incident:
-
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=404,
             detail="Incident not found",
         )
 
-    # ------------------------------------------------------
-    # Check IP
-    # ------------------------------------------------------
-
     if not incident.ip_address:
-
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=400,
             detail="Incident does not contain an IP address",
         )
 
-    # ------------------------------------------------------
-    # Run correlation engine
-    # ------------------------------------------------------
-
     try:
-
         intelligence = await correlation_service.correlate_ip(
-            str(
-                incident.ip_address
-            ),
+            str(incident.ip_address),
             db,
             incident_id=incident.id,
         )
@@ -559,32 +292,25 @@ async def get_incident_score(
                 "title": incident.title,
                 "severity": incident.severity,
                 "status": incident.status,
-                "ip_address": str(
-                    incident.ip_address
-                ),
+                "ip_address": str(incident.ip_address),
             },
             "threat_score": intelligence,
         }
 
     except Exception as e:
-
         import traceback
 
         traceback.print_exc()
-
         db.rollback()
 
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=(
-                "Incident threat scoring failed: "
-                f"{str(e)}"
-            ),
+            status_code=500,
+            detail=f"Incident threat scoring failed: {str(e)}",
         )
 
 
 # ==========================================================
-# Get Stored Incident Threat Score
+# STORED THREAT SCORE
 # ==========================================================
 
 @router.get(
@@ -594,39 +320,16 @@ def get_stored_incident_score(
     incident_id: int,
     db: Session = Depends(get_db),
 ):
-    """
-    Get the latest ThreatScore already stored
-    for an incident.
-
-    This endpoint does NOT call:
-
-        VirusTotal
-        AbuseIPDB
-        AlienVault OTX
-
-    It only reads the latest ThreatScore
-    from PostgreSQL.
-    """
-
-    # ------------------------------------------------------
-    # Check incident
-    # ------------------------------------------------------
-
     incident = get_incident_by_id(
-        db,
-        incident_id,
+        db=db,
+        incident_id=incident_id,
     )
 
     if not incident:
-
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=404,
             detail="Incident not found",
         )
-
-    # ------------------------------------------------------
-    # Get latest stored ThreatScore
-    # ------------------------------------------------------
 
     threat_score = (
         db.query(ThreatScore)
@@ -639,55 +342,138 @@ def get_stored_incident_score(
         .first()
     )
 
-    # ------------------------------------------------------
-    # No stored score
-    # ------------------------------------------------------
-
     if not threat_score:
-
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=(
-                "No threat score found "
-                "for this incident"
-            ),
+            status_code=404,
+            detail="No threat score found for this incident",
         )
-
-    # ------------------------------------------------------
-    # Return stored score
-    # ------------------------------------------------------
 
     return {
         "incident_id": incident.id,
-
         "incident_title": incident.title,
-
         "threat_score": {
-
             "id": threat_score.id,
-
-            "ip_address": (
-                threat_score.ip_address
-            ),
-
-            "threatlens_score": (
-                threat_score.threatlens_score
-            ),
-
-            "severity": (
-                threat_score.severity
-            ),
-
-            "recommendation": (
-                threat_score.recommendation
-            ),
-
-            "incident_id": (
-                threat_score.incident_id
-            ),
-
-            "created_at": (
-                threat_score.created_at
-            ),
+            "ip_address": threat_score.ip_address,
+            "threatlens_score": threat_score.threatlens_score,
+            "severity": threat_score.severity,
+            "recommendation": threat_score.recommendation,
+            "incident_id": threat_score.incident_id,
+            "created_at": threat_score.created_at,
         },
     }
+
+
+# ==========================================================
+# GET INCIDENT BY ID
+# IMPORTANT:
+# Keep this AFTER all nested routes
+# ==========================================================
+
+@router.get(
+    "/{incident_id}",
+    response_model=IncidentResponse,
+)
+def get_single_incident(
+    incident_id: int,
+    db: Session = Depends(get_db),
+):
+    incident = get_incident_by_id(
+        db=db,
+        incident_id=incident_id,
+    )
+
+    if not incident:
+        raise HTTPException(
+            status_code=404,
+            detail="Incident not found",
+        )
+
+    return incident
+
+
+# ==========================================================
+# UPDATE INCIDENT
+# ==========================================================
+
+@router.put(
+    "/{incident_id}",
+    response_model=IncidentResponse,
+)
+def update_incident_endpoint(
+    incident_id: int,
+    incident_data: IncidentUpdate,
+    db: Session = Depends(get_db),
+):
+    incident = get_incident_by_id(
+        db=db,
+        incident_id=incident_id,
+    )
+
+    if not incident:
+        raise HTTPException(
+            status_code=404,
+            detail="Incident not found",
+        )
+
+    try:
+        return update_incident(
+            db=db,
+            incident_id=incident_id,
+            incident_data=incident_data,
+        )
+
+    except Exception as e:
+        db.rollback()
+
+        print("UPDATE INCIDENT ERROR:")
+        print(str(e))
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update incident: {str(e)}",
+        )
+
+
+# ==========================================================
+# DELETE INCIDENT
+# ==========================================================
+
+@router.delete(
+    "/{incident_id}",
+)
+def delete_incident_endpoint(
+    incident_id: int,
+    db: Session = Depends(get_db),
+):
+    incident = get_incident_by_id(
+        db=db,
+        incident_id=incident_id,
+    )
+
+    if not incident:
+        raise HTTPException(
+            status_code=404,
+            detail="Incident not found",
+        )
+
+    try:
+        delete_incident(
+            db=db,
+            incident_id=incident_id,
+        )
+
+        return {
+            "message": "Incident deleted successfully",
+            "incident_id": incident_id,
+        }
+
+    except Exception as e:
+        db.rollback()
+
+        print("DELETE INCIDENT ERROR:")
+        print(str(e))
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete incident: {str(e)}",
+        )

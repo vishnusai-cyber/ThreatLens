@@ -12,158 +12,317 @@ const API_BASE_URL = "http://127.0.0.1:8001";
 async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
 
+  const {
+    headers: customHeaders = {},
+    ...fetchOptions
+  } = options;
+
   const response = await fetch(url, {
-    ...options,
+    ...fetchOptions,
 
     headers: {
       "Content-Type": "application/json",
-      ...(options.headers || {}),
+      ...customHeaders,
     },
   });
 
-  // --------------------------------------------------------
-  // Handle HTTP errors
-  // --------------------------------------------------------
+  // ========================================================
+  // HTTP ERROR
+  // ========================================================
 
   if (!response.ok) {
-    let errorMessage = `API request failed: ${response.status}`;
+    let errorMessage =
+      `API request failed: ${response.status}`;
 
     try {
-      const errorData = await response.json();
+      const contentType =
+        response.headers.get("content-type") || "";
 
-      if (errorData?.detail) {
-        errorMessage =
-          typeof errorData.detail === "string"
-            ? errorData.detail
-            : JSON.stringify(errorData.detail);
-      } else if (errorData?.message) {
-        errorMessage = errorData.message;
+      if (contentType.includes("application/json")) {
+        const errorData = await response.json();
+
+        // FastAPI validation error
+        if (Array.isArray(errorData?.detail)) {
+          errorMessage = errorData.detail
+            .map((item) => {
+              const location = Array.isArray(item?.loc)
+                ? item.loc.join(" → ")
+                : "field";
+
+              return `${location}: ${
+                item?.msg || "Validation error"
+              }`;
+            })
+            .join("\n");
+        }
+
+        // FastAPI HTTPException
+        else if (errorData?.detail) {
+          errorMessage =
+            typeof errorData.detail === "string"
+              ? errorData.detail
+              : JSON.stringify(errorData.detail);
+        }
+
+        // Generic API message
+        else if (errorData?.message) {
+          errorMessage =
+            typeof errorData.message === "string"
+              ? errorData.message
+              : JSON.stringify(errorData.message);
+        }
+      } else {
+        const text = await response.text();
+
+        if (text) {
+          errorMessage = text;
+        }
       }
     } catch {
-      // Response was not JSON
+      // Keep default HTTP error
     }
 
     throw new Error(errorMessage);
   }
 
-  // --------------------------------------------------------
-  // Handle empty / non-JSON response
-  // --------------------------------------------------------
+  // ========================================================
+  // EMPTY RESPONSE
+  // ========================================================
 
-  const contentType = response.headers.get("content-type");
-
-  if (
-    !contentType ||
-    !contentType.includes("application/json")
-  ) {
+  if (response.status === 204) {
     return null;
   }
+
+  // ========================================================
+  // RESPONSE CONTENT TYPE
+  // ========================================================
+
+  const contentType =
+    response.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    return null;
+  }
+
+  // ========================================================
+  // JSON RESPONSE
+  // ========================================================
 
   return await response.json();
 }
 
 // ==========================================================
-// Dashboard API
+// DASHBOARD API
 // ==========================================================
 
-// Dashboard overview
+// ----------------------------------------------------------
+// Dashboard Overview
+// ----------------------------------------------------------
+
 export async function getDashboardOverview() {
-  return await apiRequest("/dashboard/overview");
+  return await apiRequest(
+    "/dashboard/overview"
+  );
 }
 
-// Severity distribution
+// ----------------------------------------------------------
+// Severity Distribution
+// ----------------------------------------------------------
+
 export async function getSeverityDistribution() {
-  return await apiRequest("/dashboard/severity");
-}
-
-// Top threat IPs
-export async function getTopThreatIPs(limit = 10) {
   return await apiRequest(
-    `/dashboard/top-ips?limit=${limit}`
+    "/dashboard/severity"
   );
 }
 
-// Recent dashboard activity
-export async function getRecentAlerts(limit = 10) {
+// ----------------------------------------------------------
+// Top Threat IPs
+// ----------------------------------------------------------
+
+export async function getTopThreatIPs(
+  limit = 10
+) {
+  const safeLimit = Math.min(
+    Math.max(Number(limit) || 10, 1),
+    500
+  );
+
   return await apiRequest(
-    `/dashboard/recent?limit=${limit}`
+    `/dashboard/top-ips?limit=${safeLimit}`
   );
 }
 
-// ==========================================================
-// Threat Activity / Trends API
-// ==========================================================
+// ----------------------------------------------------------
+// Recent Alerts
+// ----------------------------------------------------------
+
+export async function getRecentAlerts(
+  limit = 10
+) {
+  const safeLimit = Math.min(
+    Math.max(Number(limit) || 10, 1),
+    100
+  );
+
+  return await apiRequest(
+    `/dashboard/recent?limit=${safeLimit}`
+  );
+}
+
+// ----------------------------------------------------------
+// Threat Trends
+// ----------------------------------------------------------
 
 export async function getThreatTrends() {
-  return await apiRequest("/dashboard/trends");
+  return await apiRequest(
+    "/dashboard/trends"
+  );
 }
 
-// ==========================================================
-// Intelligence Source Statistics
-// ==========================================================
+// ----------------------------------------------------------
+// Source Statistics
+// ----------------------------------------------------------
 
 export async function getSourceStatistics() {
-  return await apiRequest("/dashboard/sources");
+  return await apiRequest(
+    "/dashboard/sources"
+  );
 }
 
-// ==========================================================
+// ----------------------------------------------------------
 // Alert Statistics
-// ==========================================================
+// ----------------------------------------------------------
 
 export async function getAlertStatistics() {
-  return await apiRequest("/dashboard/alerts");
+  return await apiRequest(
+    "/dashboard/alerts"
+  );
 }
 
 // ==========================================================
-// Threat Intelligence API
+// THREAT INTELLIGENCE API
 // ==========================================================
 
+// ----------------------------------------------------------
 // VirusTotal
+// ----------------------------------------------------------
+
 export async function getVirusTotalIP(ip) {
+  if (!ip || !ip.trim()) {
+    throw new Error(
+      "IP address is required."
+    );
+  }
+
   return await apiRequest(
-    `/intelligence/ip/${encodeURIComponent(ip)}`
+    `/intelligence/ip/${encodeURIComponent(
+      ip.trim()
+    )}`
   );
 }
 
+// ----------------------------------------------------------
 // AbuseIPDB
+// ----------------------------------------------------------
+
 export async function getAbuseIPDB(ip) {
+  if (!ip || !ip.trim()) {
+    throw new Error(
+      "IP address is required."
+    );
+  }
+
   return await apiRequest(
-    `/intelligence/abuseipdb/${encodeURIComponent(ip)}`
+    `/intelligence/abuseipdb/${encodeURIComponent(
+      ip.trim()
+    )}`
   );
 }
 
+// ----------------------------------------------------------
 // AlienVault OTX
+// ----------------------------------------------------------
+
 export async function getOTX(ip) {
+  if (!ip || !ip.trim()) {
+    throw new Error(
+      "IP address is required."
+    );
+  }
+
   return await apiRequest(
-    `/intelligence/otx/${encodeURIComponent(ip)}`
+    `/intelligence/otx/${encodeURIComponent(
+      ip.trim()
+    )}`
   );
 }
 
-// Correlation
+// ==========================================================
+// CORRELATION ENGINE
+// ==========================================================
+
 export async function correlateIP(ip) {
+  if (!ip || !ip.trim()) {
+    throw new Error(
+      "IP address is required."
+    );
+  }
+
+  console.log(
+    "ThreatLens API: Correlating IP:",
+    ip.trim()
+  );
+
   return await apiRequest(
-    `/intelligence/correlate/${encodeURIComponent(ip)}`
+    `/intelligence/correlate/${encodeURIComponent(
+      ip.trim()
+    )}`
   );
 }
 
-// Intelligence history
+// ----------------------------------------------------------
+// Threat Scan Alias
+// ----------------------------------------------------------
+
+export async function runThreatScan(ip) {
+  return await correlateIP(ip);
+}
+
+// ==========================================================
+// INTELLIGENCE HISTORY
+// ==========================================================
+
 export async function getIntelligenceHistory(
   limit = 10,
   offset = 0,
   ip = "",
   source = ""
 ) {
-  const params = new URLSearchParams();
+  const params =
+    new URLSearchParams();
 
-  params.append("limit", limit);
-  params.append("offset", offset);
+  params.set(
+    "limit",
+    String(limit)
+  );
 
-  if (ip) {
-    params.append("ip", ip);
+  params.set(
+    "offset",
+    String(offset)
+  );
+
+  if (ip?.trim()) {
+    params.set(
+      "ip",
+      ip.trim()
+    );
   }
 
-  if (source) {
-    params.append("source", source);
+  if (source?.trim()) {
+    params.set(
+      "source",
+      source.trim()
+    );
   }
 
   return await apiRequest(
@@ -172,104 +331,673 @@ export async function getIntelligenceHistory(
 }
 
 // ==========================================================
-// Threat API
+// THREATS API
 // ==========================================================
 
-// Get all threats
+// ----------------------------------------------------------
+// Get Threats
+// ----------------------------------------------------------
+
 export async function getThreats() {
-  return await apiRequest("/threats");
+  return await apiRequest(
+    "/threats"
+  );
 }
 
-// Get single threat
+// ----------------------------------------------------------
+// Get Threat
+// ----------------------------------------------------------
+
 export async function getThreat(id) {
-  return await apiRequest(`/threats/${id}`);
+  if (!id) {
+    throw new Error(
+      "Threat ID is required."
+    );
+  }
+
+  return await apiRequest(
+    `/threats/${id}`
+  );
 }
 
-// Create threat
-export async function createThreat(threatData) {
-  return await apiRequest("/threats", {
-    method: "POST",
-    body: JSON.stringify(threatData),
-  });
+// ----------------------------------------------------------
+// Create Threat
+// ----------------------------------------------------------
+
+export async function createThreat(
+  threatData
+) {
+  if (!threatData) {
+    throw new Error(
+      "Threat data is required."
+    );
+  }
+
+  return await apiRequest(
+    "/threats",
+    {
+      method: "POST",
+      body: JSON.stringify(
+        threatData
+      ),
+    }
+  );
 }
 
-// Delete threat
+// ----------------------------------------------------------
+// Delete Threat
+// ----------------------------------------------------------
+
 export async function deleteThreat(id) {
-  return await apiRequest(`/threats/${id}`, {
-    method: "DELETE",
-  });
+  if (!id) {
+    throw new Error(
+      "Threat ID is required."
+    );
+  }
+
+  return await apiRequest(
+    `/threats/${id}`,
+    {
+      method: "DELETE",
+    }
+  );
 }
 
 // ==========================================================
-// Alerts API
+// ALERTS API
 // ==========================================================
 
-// Get all alerts
+// ----------------------------------------------------------
+// Get Alerts
+// ----------------------------------------------------------
+
 export async function getAlerts() {
-  return await apiRequest("/alerts");
+  return await apiRequest(
+    "/alerts"
+  );
 }
 
-// Get single alert
+// ----------------------------------------------------------
+// Get Alert
+// ----------------------------------------------------------
+
 export async function getAlert(id) {
-  return await apiRequest(`/alerts/${id}`);
+  if (!id) {
+    throw new Error(
+      "Alert ID is required."
+    );
+  }
+
+  return await apiRequest(
+    `/alerts/${id}`
+  );
 }
 
-// Create alert
-export async function createAlert(alertData) {
-  return await apiRequest("/alerts", {
-    method: "POST",
-    body: JSON.stringify(alertData),
-  });
+// ----------------------------------------------------------
+// Create Alert
+// ----------------------------------------------------------
+
+export async function createAlert(
+  alertData
+) {
+  if (!alertData) {
+    throw new Error(
+      "Alert data is required."
+    );
+  }
+
+  return await apiRequest(
+    "/alerts",
+    {
+      method: "POST",
+      body: JSON.stringify(
+        alertData
+      ),
+    }
+  );
+}
+
+// ----------------------------------------------------------
+// Update Alert
+// ----------------------------------------------------------
+
+export async function updateAlert(
+  id,
+  alertData
+) {
+  if (!id) {
+    throw new Error(
+      "Alert ID is required."
+    );
+  }
+
+  if (!alertData) {
+    throw new Error(
+      "Alert data is required."
+    );
+  }
+
+  return await apiRequest(
+    `/alerts/${id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(
+        alertData
+      ),
+    }
+  );
+}
+
+// ----------------------------------------------------------
+// Delete Alert
+// ----------------------------------------------------------
+
+export async function deleteAlert(id) {
+  if (!id) {
+    throw new Error(
+      "Alert ID is required."
+    );
+  }
+
+  return await apiRequest(
+    `/alerts/${id}`,
+    {
+      method: "DELETE",
+    }
+  );
 }
 
 // ==========================================================
-// Incidents API
+// INCIDENTS API
 // ==========================================================
 
-// Get all incidents
-export async function getIncidents() {
-  return await apiRequest("/incidents");
+// ----------------------------------------------------------
+// Get All Incidents
+// ----------------------------------------------------------
+
+export async function getIncidents(
+  skip = 0,
+  limit = 100
+) {
+  const safeSkip = Math.max(
+    Number(skip) || 0,
+    0
+  );
+
+  const safeLimit = Math.min(
+    Math.max(Number(limit) || 100, 1),
+    500
+  );
+
+  return await apiRequest(
+    `/incidents?skip=${safeSkip}&limit=${safeLimit}`
+  );
 }
 
-// Get single incident
+// ----------------------------------------------------------
+// Get Single Incident
+// ----------------------------------------------------------
+
 export async function getIncident(id) {
-  return await apiRequest(`/incidents/${id}`);
+  if (!id) {
+    throw new Error(
+      "Incident ID is required."
+    );
+  }
+
+  return await apiRequest(
+    `/incidents/${id}`
+  );
 }
 
-// Create incident
-export async function createIncident(incidentData) {
-  return await apiRequest("/incidents", {
-    method: "POST",
-    body: JSON.stringify(incidentData),
-  });
+// ----------------------------------------------------------
+// Create Incident
+// ----------------------------------------------------------
+
+export async function createIncident(
+  incidentData
+) {
+  if (!incidentData) {
+    throw new Error(
+      "Incident data is required."
+    );
+  }
+
+  const payload = {
+    title:
+      incidentData.title?.trim() || "",
+
+    description:
+      incidentData.description?.trim() ||
+      null,
+
+    severity:
+      String(
+        incidentData.severity ||
+          "medium"
+      ).toLowerCase(),
+
+    status:
+      String(
+        incidentData.status ||
+          "open"
+      ).toLowerCase(),
+
+    ip_address:
+      incidentData.ip_address?.trim() ||
+      null,
+  };
+
+  if (!payload.title) {
+    throw new Error(
+      "Incident title is required."
+    );
+  }
+
+  console.log(
+    "ThreatLens API: Creating incident:",
+    payload
+  );
+
+  return await apiRequest(
+    "/incidents",
+    {
+      method: "POST",
+      body: JSON.stringify(
+        payload
+      ),
+    }
+  );
+}
+
+// ----------------------------------------------------------
+// Update Incident
+// ----------------------------------------------------------
+
+export async function updateIncident(
+  id,
+  incidentData
+) {
+  if (!id) {
+    throw new Error(
+      "Incident ID is required."
+    );
+  }
+
+  if (!incidentData) {
+    throw new Error(
+      "Incident data is required."
+    );
+  }
+
+  const payload = {};
+
+  if (
+    incidentData.title !==
+    undefined
+  ) {
+    payload.title =
+      incidentData.title?.trim() ||
+      "";
+  }
+
+  if (
+    incidentData.description !==
+    undefined
+  ) {
+    payload.description =
+      incidentData.description?.trim() ||
+      null;
+  }
+
+  if (
+    incidentData.severity !==
+    undefined
+  ) {
+    payload.severity =
+      String(
+        incidentData.severity
+      ).toLowerCase();
+  }
+
+  if (
+    incidentData.status !==
+    undefined
+  ) {
+    payload.status =
+      String(
+        incidentData.status
+      ).toLowerCase();
+  }
+
+  if (
+    incidentData.ip_address !==
+    undefined
+  ) {
+    payload.ip_address =
+      incidentData.ip_address?.trim() ||
+      null;
+  }
+
+  console.log(
+    "ThreatLens API: Updating incident:",
+    id,
+    payload
+  );
+
+  return await apiRequest(
+    `/incidents/${id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(
+        payload
+      ),
+    }
+  );
+}
+
+// ----------------------------------------------------------
+// Delete Incident
+// ----------------------------------------------------------
+
+export async function deleteIncident(
+  id
+) {
+  if (!id) {
+    throw new Error(
+      "Incident ID is required."
+    );
+  }
+
+  return await apiRequest(
+    `/incidents/${id}`,
+    {
+      method: "DELETE",
+    }
+  );
 }
 
 // ==========================================================
-// Threat Map API
+// INCIDENT STATISTICS
 // ==========================================================
 
-export async function getGlobalThreatMap() {
-  return await apiRequest("/threat-map/global");
+// Backend:
+// GET /incidents/stats
+
+export async function getIncidentStats() {
+  return await apiRequest(
+    "/incidents/stats"
+  );
 }
 
 // ==========================================================
-// Authentication API
+// INCIDENT DASHBOARD
 // ==========================================================
 
-// Register user
-export async function registerUser(userData) {
-  return await apiRequest("/auth/register", {
-    method: "POST",
-    body: JSON.stringify(userData),
-  });
+// ----------------------------------------------------------
+// Incident Dashboard Overview
+// ----------------------------------------------------------
+
+export async function getIncidentDashboardOverview() {
+  return await apiRequest(
+    "/incidents/dashboard/overview"
+  );
 }
 
-// Login user
-export async function loginUser(username, password) {
-  const formData = new URLSearchParams();
+// ----------------------------------------------------------
+// Incident Severity Distribution
+// ----------------------------------------------------------
 
-  formData.append("username", username);
-  formData.append("password", password);
+export async function getIncidentSeverityDistribution() {
+  return await apiRequest(
+    "/incidents/dashboard/incidents/severity"
+  );
+}
+
+// ----------------------------------------------------------
+// Incident Status Distribution
+// ----------------------------------------------------------
+
+export async function getIncidentStatusDistribution() {
+  return await apiRequest(
+    "/incidents/dashboard/incidents/status"
+  );
+}
+
+// ----------------------------------------------------------
+// Recent Incidents
+// ----------------------------------------------------------
+
+export async function getRecentIncidents(
+  limit = 10
+) {
+  const safeLimit = Math.min(
+    Math.max(Number(limit) || 10, 1),
+    100
+  );
+
+  return await apiRequest(
+    `/incidents/dashboard/recent?limit=${safeLimit}`
+  );
+}
+
+// ----------------------------------------------------------
+// Incident Activity
+// ----------------------------------------------------------
+
+export async function getIncidentActivity(
+  limit = 10
+) {
+  const safeLimit = Math.min(
+    Math.max(Number(limit) || 10, 1),
+    100
+  );
+
+  return await apiRequest(
+    `/incidents/dashboard/activity?limit=${safeLimit}`
+  );
+}
+
+// ==========================================================
+// INCIDENT INTELLIGENCE
+// ==========================================================
+
+export async function getIncidentIntelligence(
+  incidentId,
+  limit = 10,
+  offset = 0
+) {
+  if (!incidentId) {
+    throw new Error(
+      "Incident ID is required."
+    );
+  }
+
+  const safeLimit = Math.min(
+    Math.max(Number(limit) || 10, 1),
+    100
+  );
+
+  const safeOffset = Math.max(
+    Number(offset) || 0,
+    0
+  );
+
+  return await apiRequest(
+    `/incidents/${incidentId}/intelligence?limit=${safeLimit}&offset=${safeOffset}`
+  );
+}
+
+// ==========================================================
+// INCIDENT THREAT SCORE
+// ==========================================================
+
+// ----------------------------------------------------------
+// Calculate Fresh Score
+// ----------------------------------------------------------
+
+export async function getIncidentScore(
+  incidentId
+) {
+  if (!incidentId) {
+    throw new Error(
+      "Incident ID is required."
+    );
+  }
+
+  return await apiRequest(
+    `/incidents/${incidentId}/score`
+  );
+}
+
+// ----------------------------------------------------------
+// Get Stored Score
+// ----------------------------------------------------------
+
+export async function getStoredIncidentScore(
+  incidentId
+) {
+  if (!incidentId) {
+    throw new Error(
+      "Incident ID is required."
+    );
+  }
+
+  return await apiRequest(
+    `/incidents/${incidentId}/stored-score`
+  );
+}
+
+// ==========================================================
+// INTELLIGENCE ↔ INCIDENT
+// ==========================================================
+
+// ----------------------------------------------------------
+// Attach Lookup
+// ----------------------------------------------------------
+
+export async function attachLookupToIncident(
+  lookupId,
+  incidentId
+) {
+  if (!lookupId) {
+    throw new Error(
+      "Lookup ID is required."
+    );
+  }
+
+  if (!incidentId) {
+    throw new Error(
+      "Incident ID is required."
+    );
+  }
+
+  return await apiRequest(
+    `/intelligence/lookup/${lookupId}/incident/${incidentId}`,
+    {
+      method: "POST",
+    }
+  );
+}
+
+// ----------------------------------------------------------
+// Detach Lookup
+// ----------------------------------------------------------
+
+export async function detachLookupFromIncident(
+  lookupId
+) {
+  if (!lookupId) {
+    throw new Error(
+      "Lookup ID is required."
+    );
+  }
+
+  return await apiRequest(
+    `/intelligence/lookup/${lookupId}/incident`,
+    {
+      method: "DELETE",
+    }
+  );
+}
+
+// ==========================================================
+// THREAT MAP
+// ==========================================================
+
+export async function getGlobalThreatMap(
+  limit = 100
+) {
+  const safeLimit = Math.min(
+    Math.max(Number(limit) || 100, 1),
+    500
+  );
+
+  return await apiRequest(
+    `/threat-map?limit=${safeLimit}`
+  );
+}
+
+// ==========================================================
+// AUTHENTICATION
+// ==========================================================
+
+// ----------------------------------------------------------
+// Register
+// ----------------------------------------------------------
+
+export async function registerUser(
+  userData
+) {
+  if (!userData) {
+    throw new Error(
+      "User data is required."
+    );
+  }
+
+  return await apiRequest(
+    "/auth/register",
+    {
+      method: "POST",
+      body: JSON.stringify(
+        userData
+      ),
+    }
+  );
+}
+
+// ----------------------------------------------------------
+// Login
+// ----------------------------------------------------------
+
+export async function loginUser(
+  username,
+  password
+) {
+  if (!username?.trim()) {
+    throw new Error(
+      "Username is required."
+    );
+  }
+
+  if (!password) {
+    throw new Error(
+      "Password is required."
+    );
+  }
+
+  const formData =
+    new URLSearchParams();
+
+  formData.append(
+    "username",
+    username.trim()
+  );
+
+  formData.append(
+    "password",
+    password
+  );
 
   const response = await fetch(
     `${API_BASE_URL}/auth/login`,
@@ -285,61 +1013,111 @@ export async function loginUser(username, password) {
     }
   );
 
-  // --------------------------------------------------------
-  // Handle login errors
-  // --------------------------------------------------------
-
   if (!response.ok) {
     let errorMessage =
       `Login failed: ${response.status}`;
 
     try {
-      const errorData = await response.json();
+      const contentType =
+        response.headers.get(
+          "content-type"
+        ) || "";
 
-      if (errorData?.detail) {
-        errorMessage =
-          typeof errorData.detail === "string"
-            ? errorData.detail
-            : JSON.stringify(errorData.detail);
-      } else if (errorData?.message) {
-        errorMessage = errorData.message;
+      if (
+        contentType.includes(
+          "application/json"
+        )
+      ) {
+        const errorData =
+          await response.json();
+
+        if (
+          Array.isArray(
+            errorData?.detail
+          )
+        ) {
+          errorMessage =
+            errorData.detail
+              .map(
+                (item) =>
+                  item?.msg ||
+                  "Validation error"
+              )
+              .join("\n");
+        } else if (
+          errorData?.detail
+        ) {
+          errorMessage =
+            typeof errorData.detail ===
+            "string"
+              ? errorData.detail
+              : JSON.stringify(
+                  errorData.detail
+                );
+        }
       }
     } catch {
-      // Ignore invalid JSON response
+      // Ignore malformed error response
     }
 
-    throw new Error(errorMessage);
+    throw new Error(
+      errorMessage
+    );
   }
 
   return await response.json();
 }
 
 // ==========================================================
-// Current User API
+// CURRENT USER
 // ==========================================================
 
-export async function getCurrentUser(token) {
-  return await apiRequest("/users/me", {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
+export async function getCurrentUser(
+  token
+) {
+  if (!token) {
+    throw new Error(
+      "Authentication token is required."
+    );
+  }
+
+  return await apiRequest(
+    "/users/me",
+    {
+      headers: {
+        Authorization:
+          `Bearer ${token}`,
+      },
+    }
+  );
 }
 
 // ==========================================================
-// Admin API
+// ADMIN
 // ==========================================================
 
-export async function getAdminDashboard(token) {
-  return await apiRequest("/admin/dashboard", {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
+export async function getAdminDashboard(
+  token
+) {
+  if (!token) {
+    throw new Error(
+      "Authentication token is required."
+    );
+  }
+
+  return await apiRequest(
+    "/admin/dashboard",
+    {
+      headers: {
+        Authorization:
+          `Bearer ${token}`,
+      },
+    }
+  );
 }
 
 // ==========================================================
-// Health Check
+// HEALTH CHECK
 // ==========================================================
 
 export async function checkBackendHealth() {
@@ -347,7 +1125,9 @@ export async function checkBackendHealth() {
 }
 
 // ==========================================================
-// Export API configuration
+// EXPORT
 // ==========================================================
 
-export { API_BASE_URL };
+export {
+  API_BASE_URL,
+};

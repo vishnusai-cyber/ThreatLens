@@ -1,19 +1,66 @@
-
 from datetime import datetime
+from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, IPvAnyAddress
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    IPvAnyAddress,
+)
 
 
 # ==========================================================
-# Incident Base Schema
+# ThreatLens - Incident Schemas
+# ==========================================================
+
+
+# ==========================================================
+# Severity Enum
+# ==========================================================
+
+class IncidentSeverity(str, Enum):
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+# ==========================================================
+# Status Enum
+# ==========================================================
+
+class IncidentStatus(str, Enum):
+    OPEN = "open"
+    INVESTIGATING = "investigating"
+    RESOLVED = "resolved"
+
+
+# ==========================================================
+# Incident Base
 # ==========================================================
 
 class IncidentBase(BaseModel):
-    title: str
-    description: Optional[str] = None
-    severity: str = "medium"
-    status: str = "open"
+
+    title: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+    )
+
+    description: Optional[str] = Field(
+        default=None,
+        max_length=5000,
+    )
+
+    severity: IncidentSeverity = (
+        IncidentSeverity.MEDIUM
+    )
+
+    status: IncidentStatus = (
+        IncidentStatus.OPEN
+    )
+
     ip_address: Optional[IPvAnyAddress] = None
 
 
@@ -30,10 +77,22 @@ class IncidentCreate(IncidentBase):
 # ==========================================================
 
 class IncidentUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    severity: Optional[str] = None
-    status: Optional[str] = None
+
+    title: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+    )
+
+    description: Optional[str] = Field(
+        default=None,
+        max_length=5000,
+    )
+
+    severity: Optional[IncidentSeverity] = None
+
+    status: Optional[IncidentStatus] = None
+
     ip_address: Optional[IPvAnyAddress] = None
 
 
@@ -42,13 +101,21 @@ class IncidentUpdate(BaseModel):
 # ==========================================================
 
 class IncidentResponse(BaseModel):
+
     id: int
+
     title: str
+
     description: Optional[str] = None
+
     severity: str
+
     status: str
+
     ip_address: Optional[str] = None
+
     created_at: datetime
+
     updated_at: datetime
 
     model_config = ConfigDict(
@@ -61,11 +128,17 @@ class IncidentResponse(BaseModel):
 # ==========================================================
 
 class IncidentIntelligenceItem(BaseModel):
+
     id: int
+
     ip: str
+
     source: str
+
     risk_score: Optional[int] = None
+
     incident_id: Optional[int] = None
+
     created_at: datetime
 
     model_config = ConfigDict(
@@ -78,13 +151,16 @@ class IncidentIntelligenceItem(BaseModel):
 # ==========================================================
 
 class IncidentIntelligenceResponse(BaseModel):
+
     incident: IncidentResponse
 
     filters: dict
 
     pagination: dict
 
-    intelligence: list[IncidentIntelligenceItem]
+    intelligence: list[
+        IncidentIntelligenceItem
+    ]
 
 
 # ==========================================================
@@ -92,39 +168,60 @@ class IncidentIntelligenceResponse(BaseModel):
 # ==========================================================
 
 class IncidentStats(BaseModel):
+
     total: int
 
     open: int
+
     investigating: int
+
     resolved: int
 
     critical: int
+
     high: int
+
     medium: int
+
     low: int
-    
-    
-    # ==========================================================
-# Incident Dashboard Schemas
+
+
+# ==========================================================
+# Incident Severity Statistics
 # ==========================================================
 
 class IncidentSeverityStats(BaseModel):
+
     critical: int
+
     high: int
+
     medium: int
+
     low: int
 
 
+# ==========================================================
+# Incident Status Statistics
+# ==========================================================
+
 class IncidentStatusStats(BaseModel):
+
     open: int
+
     investigating: int
+
     resolved: int
 
 
+# ==========================================================
+# Incident Dashboard Overview
+# ==========================================================
+
 class IncidentDashboardOverview(BaseModel):
+
     total_incidents: int
 
     severity: IncidentSeverityStats
 
     status: IncidentStatusStats
-

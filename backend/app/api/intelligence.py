@@ -1,3 +1,7 @@
+# ==========================================================
+# ThreatLens - Intelligence API
+# ==========================================================
+
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 import traceback
@@ -23,9 +27,13 @@ from app.schemas.intelligence import IntelligenceHistoryResponse
 from app.schemas.correlation import CorrelationResponse
 
 
+# ==========================================================
+# Router
+# ==========================================================
+
 router = APIRouter(
     prefix="/intelligence",
-    tags=["Threat Intelligence"]
+    tags=["Threat Intelligence"],
 )
 
 
@@ -46,7 +54,7 @@ correlation_service = CorrelationService()
 @router.get("/ip/{ip}")
 async def check_ip(
     ip: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     try:
         result = await vt_service.get_ip_report(ip)
@@ -65,7 +73,7 @@ async def check_ip(
             ip=result["data"]["id"],
             source="VirusTotal",
             risk_score=risk_score,
-            raw_response=result
+            raw_response=result,
         )
 
         return {
@@ -79,8 +87,8 @@ async def check_ip(
                 "malicious": stats.get("malicious"),
                 "suspicious": stats.get("suspicious"),
                 "harmless": stats.get("harmless"),
-                "undetected": stats.get("undetected")
-            }
+                "undetected": stats.get("undetected"),
+            },
         }
 
     except Exception as e:
@@ -88,7 +96,7 @@ async def check_ip(
 
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail=str(e),
         )
 
 
@@ -99,12 +107,12 @@ async def check_ip(
 @router.get("/abuseipdb/{ip}")
 async def check_abuseipdb(
     ip: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     try:
         result = await abuse_service.get_ip_report(
             ip,
-            db
+            db,
         )
 
         data = result["data"]
@@ -129,7 +137,7 @@ async def check_abuseipdb(
             ),
             "is_whitelisted": data.get(
                 "isWhitelisted"
-            )
+            ),
         }
 
     except Exception as e:
@@ -137,7 +145,7 @@ async def check_abuseipdb(
 
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail=str(e),
         )
 
 
@@ -147,14 +155,14 @@ async def check_abuseipdb(
 
 @router.get("/otx/{ip}")
 async def check_otx(
-    ip: str
+    ip: str,
 ):
     try:
         result = await otx_service.get_ip_report(ip)
 
         pulse_info = result.get(
             "pulse_info",
-            {}
+            {},
         )
 
         return {
@@ -167,8 +175,8 @@ async def check_otx(
             ),
             "related_pulses": pulse_info.get(
                 "pulses",
-                []
-            )
+                [],
+            ),
         }
 
     except Exception as e:
@@ -176,7 +184,7 @@ async def check_otx(
 
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail=str(e),
         )
 
 
@@ -186,24 +194,128 @@ async def check_otx(
 
 @router.get(
     "/correlate/{ip}",
-    response_model=CorrelationResponse
+    response_model=CorrelationResponse,
 )
 async def correlate_ip(
     ip: str,
-    db: Session = Depends(get_db)
+    incident_id: int | None = None,
+    db: Session = Depends(get_db),
 ):
+    """
+    Correlate an IP using:
+
+    - VirusTotal
+    - AbuseIPDB
+    - AlienVault OTX
+
+    Optionally associates the generated ThreatScore
+    and Alert with an Incident.
+
+    Example:
+
+    /intelligence/correlate/217.60.195.160?incident_id=5
+    """
+
     try:
-        return await correlation_service.correlate_ip(
-            ip,
-            db
+        # ==================================================
+        # Normalize IP
+        # ==================================================
+
+        ip = str(ip).strip()
+
+        if not ip:
+            raise HTTPException(
+                status_code=400,
+                detail="IP address cannot be empty.",
+            )
+
+        # ==================================================
+        # Validate Incident
+        # ==================================================
+
+        if incident_id is not None:
+
+            incident = (
+                db.query(Incident)
+                .filter(
+                    Incident.id == incident_id
+                )
+                .first()
+            )
+
+            if not incident:
+                raise HTTPException(
+                    status_code=404,
+                    detail=(
+                        f"Incident {incident_id} "
+                        f"not found"
+                    ),
+                )
+
+            # ------------------------------------------------
+            # Optional IP consistency check
+            # ------------------------------------------------
+            #
+            # If the incident already has an IP address,
+            # make sure the scan matches it.
+            #
+            # We deliberately do not reject a mismatch here
+            # because an incident may legitimately contain
+            # multiple intelligence observations.
+            # ------------------------------------------------
+
+            print(
+                "================================================"
+            )
+
+            print(
+                "[ThreatLens] Incident-aware correlation"
+            )
+
+            print(
+                "[ThreatLens] Incident ID:",
+                incident_id,
+            )
+
+            print(
+                "[ThreatLens] Incident IP:",
+                incident.ip_address,
+            )
+
+            print(
+                "[ThreatLens] Scan IP:",
+                ip,
+            )
+
+            print(
+                "================================================"
+            )
+
+        # ==================================================
+        # Run Correlation
+        # ==================================================
+
+        result = await correlation_service.correlate_ip(
+            ip=ip,
+            db=db,
+            incident_id=incident_id,
         )
+
+        # ==================================================
+        # Return Result
+        # ==================================================
+
+        return result
+
+    except HTTPException:
+        raise
 
     except Exception as e:
         traceback.print_exc()
 
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail=str(e),
         )
 
 
@@ -213,19 +325,20 @@ async def correlate_ip(
 
 @router.get(
     "/history",
-    response_model=list[IntelligenceHistoryResponse]
+    response_model=list[IntelligenceHistoryResponse],
 )
 def get_history(
     limit: int = 10,
     offset: int = 0,
     ip: str | None = None,
     source: str | None = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Retrieve intelligence lookup history.
 
     Supports:
+
     - Pagination
     - IP filtering
     - Source filtering
@@ -236,7 +349,7 @@ def get_history(
         limit=limit,
         offset=offset,
         ip=ip,
-        source=source
+        source=source,
     )
 
 
@@ -250,9 +363,12 @@ def get_history(
 def attach_intelligence_to_incident(
     lookup_id: int,
     incident_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    # Check whether the incident exists
+    # ======================================================
+    # Check Incident
+    # ======================================================
+
     incident = (
         db.query(Incident)
         .filter(
@@ -264,20 +380,26 @@ def attach_intelligence_to_incident(
     if not incident:
         raise HTTPException(
             status_code=404,
-            detail=f"Incident {incident_id} not found"
+            detail=f"Incident {incident_id} not found",
         )
 
-    # Attach the intelligence lookup
+    # ======================================================
+    # Attach Lookup
+    # ======================================================
+
     lookup = attach_lookup_to_incident(
         db=db,
         lookup_id=lookup_id,
-        incident_id=incident_id
+        incident_id=incident_id,
     )
 
     if not lookup:
         raise HTTPException(
             status_code=404,
-            detail=f"Intelligence lookup {lookup_id} not found"
+            detail=(
+                f"Intelligence lookup "
+                f"{lookup_id} not found"
+            ),
         )
 
     return {
@@ -289,7 +411,7 @@ def attach_intelligence_to_incident(
         "incident_id": lookup.incident_id,
         "ip": lookup.ip,
         "source": lookup.source,
-        "risk_score": lookup.risk_score
+        "risk_score": lookup.risk_score,
     }
 
 
@@ -302,11 +424,11 @@ def attach_intelligence_to_incident(
 )
 def detach_intelligence_from_incident(
     lookup_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    # ------------------------------------------------------
-    # Find the intelligence lookup
-    # ------------------------------------------------------
+    # ======================================================
+    # Find Lookup
+    # ======================================================
 
     lookup = (
         db.query(IntelligenceLookup)
@@ -319,12 +441,15 @@ def detach_intelligence_from_incident(
     if not lookup:
         raise HTTPException(
             status_code=404,
-            detail=f"Intelligence lookup {lookup_id} not found"
+            detail=(
+                f"Intelligence lookup "
+                f"{lookup_id} not found"
+            ),
         )
 
-    # ------------------------------------------------------
-    # Check whether it is currently attached
-    # ------------------------------------------------------
+    # ======================================================
+    # Check Attachment
+    # ======================================================
 
     if lookup.incident_id is None:
         raise HTTPException(
@@ -332,24 +457,27 @@ def detach_intelligence_from_incident(
             detail=(
                 "Intelligence lookup is not "
                 "attached to an incident"
-            )
+            ),
         )
 
     previous_incident_id = lookup.incident_id
 
-    # ------------------------------------------------------
-    # Detach the lookup
-    # ------------------------------------------------------
+    # ======================================================
+    # Detach
+    # ======================================================
 
     lookup = detach_lookup_from_incident(
         db=db,
-        lookup_id=lookup_id
+        lookup_id=lookup_id,
     )
 
     if not lookup:
         raise HTTPException(
             status_code=404,
-            detail=f"Intelligence lookup {lookup_id} not found"
+            detail=(
+                f"Intelligence lookup "
+                f"{lookup_id} not found"
+            ),
         )
 
     return {
@@ -362,6 +490,5 @@ def detach_intelligence_from_incident(
         "incident_id": lookup.incident_id,
         "ip": lookup.ip,
         "source": lookup.source,
-        "risk_score": lookup.risk_score
+        "risk_score": lookup.risk_score,
     }
-

@@ -15,23 +15,30 @@ def create_incident(
     Create a new security incident.
     """
 
-    incident = Incident(
-        title=incident_data.title,
-        description=incident_data.description,
-        severity=incident_data.severity,
-        status=incident_data.status,
-        ip_address=(
-            str(incident_data.ip_address)
-            if incident_data.ip_address
-            else None
-        ),
-    )
+    try:
+        incident = Incident(
+            title=incident_data.title,
+            description=incident_data.description,
+            severity=incident_data.severity,
+            status=incident_data.status,
+            ip_address=(
+                str(incident_data.ip_address)
+                if incident_data.ip_address is not None
+                else None
+            ),
+        )
 
-    db.add(incident)
-    db.commit()
-    db.refresh(incident)
+        db.add(incident)
 
-    return incident
+        db.commit()
+
+        db.refresh(incident)
+
+        return incident
+
+    except Exception:
+        db.rollback()
+        raise
 
 
 # ==========================================================
@@ -43,10 +50,6 @@ def get_incidents(
     skip: int = 0,
     limit: int = 100,
 ):
-    """
-    Get incidents with pagination.
-    """
-
     return (
         db.query(Incident)
         .order_by(
@@ -66,10 +69,6 @@ def get_incident_by_id(
     db: Session,
     incident_id: int,
 ):
-    """
-    Get a single incident by ID.
-    """
-
     return (
         db.query(Incident)
         .filter(
@@ -88,10 +87,6 @@ def update_incident(
     incident_id: int,
     incident_data,
 ):
-    """
-    Update an existing incident.
-    """
-
     incident = get_incident_by_id(
         db,
         incident_id,
@@ -100,38 +95,36 @@ def update_incident(
     if not incident:
         return None
 
-    update_data = incident_data.model_dump(
-        exclude_unset=True
-    )
+    try:
 
-    # ------------------------------------------------------
-    # Convert IP address to string
-    # ------------------------------------------------------
-
-    if "ip_address" in update_data:
-
-        if update_data["ip_address"] is not None:
-
-            update_data["ip_address"] = str(
-                update_data["ip_address"]
-            )
-
-    # ------------------------------------------------------
-    # Apply updates
-    # ------------------------------------------------------
-
-    for field, value in update_data.items():
-
-        setattr(
-            incident,
-            field,
-            value,
+        update_data = incident_data.model_dump(
+            exclude_unset=True
         )
 
-    db.commit()
-    db.refresh(incident)
+        if "ip_address" in update_data:
 
-    return incident
+            if update_data["ip_address"] is not None:
+                update_data["ip_address"] = str(
+                    update_data["ip_address"]
+                )
+
+        for field, value in update_data.items():
+
+            setattr(
+                incident,
+                field,
+                value,
+            )
+
+        db.commit()
+
+        db.refresh(incident)
+
+        return incident
+
+    except Exception:
+        db.rollback()
+        raise
 
 
 # ==========================================================
@@ -142,10 +135,6 @@ def delete_incident(
     db: Session,
     incident_id: int,
 ):
-    """
-    Delete an incident.
-    """
-
     incident = get_incident_by_id(
         db,
         incident_id,
@@ -154,10 +143,17 @@ def delete_incident(
     if not incident:
         return None
 
-    db.delete(incident)
-    db.commit()
+    try:
 
-    return incident
+        db.delete(incident)
+
+        db.commit()
+
+        return incident
+
+    except Exception:
+        db.rollback()
+        raise
 
 
 # ==========================================================
@@ -167,20 +163,12 @@ def delete_incident(
 def get_incident_stats(
     db: Session,
 ):
-    """
-    Get incident statistics.
-    """
-
     incidents = (
         db.query(Incident)
         .all()
     )
 
     total = len(incidents)
-
-    # ------------------------------------------------------
-    # Status counts
-    # ------------------------------------------------------
 
     open_count = sum(
         1
@@ -202,10 +190,6 @@ def get_incident_stats(
         if incident.status
         and incident.status.lower() == "resolved"
     )
-
-    # ------------------------------------------------------
-    # Severity counts
-    # ------------------------------------------------------
 
     critical = sum(
         1
@@ -254,20 +238,12 @@ def get_incident_stats(
 def get_incident_dashboard_overview(
     db: Session,
 ):
-    """
-    Get overall incident dashboard statistics.
-    """
-
     incidents = (
         db.query(Incident)
         .all()
     )
 
     total_incidents = len(incidents)
-
-    # ------------------------------------------------------
-    # Severity counts
-    # ------------------------------------------------------
 
     critical = sum(
         1
@@ -297,10 +273,6 @@ def get_incident_dashboard_overview(
         and incident.severity.lower() == "low"
     )
 
-    # ------------------------------------------------------
-    # Status counts
-    # ------------------------------------------------------
-
     open_count = sum(
         1
         for incident in incidents
@@ -321,10 +293,6 @@ def get_incident_dashboard_overview(
         if incident.status
         and incident.status.lower() == "resolved"
     )
-
-    # ------------------------------------------------------
-    # Return dashboard overview
-    # ------------------------------------------------------
 
     return {
         "total_incidents": total_incidents,
@@ -351,18 +319,10 @@ def get_incident_dashboard_overview(
 def get_incident_severity_distribution(
     db: Session,
 ):
-    """
-    Get incident counts grouped by severity.
-    """
-
     incidents = (
         db.query(Incident)
         .all()
     )
-
-    # ------------------------------------------------------
-    # Severity counts
-    # ------------------------------------------------------
 
     critical = sum(
         1
@@ -392,10 +352,6 @@ def get_incident_severity_distribution(
         and incident.severity.lower() == "low"
     )
 
-    # ------------------------------------------------------
-    # Return severity distribution
-    # ------------------------------------------------------
-
     return {
         "critical": critical,
         "high": high,
@@ -411,18 +367,10 @@ def get_incident_severity_distribution(
 def get_incident_status_distribution(
     db: Session,
 ):
-    """
-    Get incident counts grouped by status.
-    """
-
     incidents = (
         db.query(Incident)
         .all()
     )
-
-    # ------------------------------------------------------
-    # Status counts
-    # ------------------------------------------------------
 
     open_count = sum(
         1
@@ -445,10 +393,6 @@ def get_incident_status_distribution(
         and incident.status.lower() == "resolved"
     )
 
-    # ------------------------------------------------------
-    # Return status distribution
-    # ------------------------------------------------------
-
     return {
         "open": open_count,
         "investigating": investigating,
@@ -464,10 +408,6 @@ def get_recent_incidents(
     db: Session,
     limit: int = 10,
 ):
-    """
-    Get the most recently created incidents.
-    """
-
     return (
         db.query(Incident)
         .order_by(
@@ -486,12 +426,6 @@ def get_incident_activity(
     db: Session,
     limit: int = 10,
 ):
-    """
-    Get recent incident activity.
-
-    Currently returns the most recently created incidents.
-    """
-
     return (
         db.query(Incident)
         .order_by(

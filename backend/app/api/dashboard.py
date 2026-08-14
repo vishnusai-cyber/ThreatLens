@@ -8,6 +8,7 @@ from app.crud.dashboard import (
     get_severity_distribution,
     get_top_ips,
     get_recent_activity,
+    get_recent_alerts,
     get_source_statistics,
     get_threat_trends,
 )
@@ -73,7 +74,7 @@ def top_ips(
 
 
 # ==========================================================
-# Recent Activity
+# Recent Alerts
 # ==========================================================
 
 @router.get(
@@ -84,7 +85,7 @@ def recent_activity(
     limit: int = 10,
     db: Session = Depends(get_db)
 ):
-    return get_recent_activity(db, limit)
+    return get_recent_alerts(db, limit)
 
 
 # ==========================================================

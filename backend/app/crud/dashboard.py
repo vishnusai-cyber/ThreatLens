@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.models.threat_score import ThreatScore
 from app.models.intelligence import IntelligenceLookup
+from app.models.alert import Alert
 
 
 # ==========================================================
@@ -69,15 +70,6 @@ def get_severity_distribution(db: Session):
 
 # ==========================================================
 # Top Malicious IPs
-# ==========================================================
-#
-# IMPORTANT:
-# Return only ONE record per IP.
-#
-# If the same IP has been scanned multiple times, we select
-# the highest ThreatLens score for that IP.
-#
-# If two scans have the same score, the newest scan wins.
 # ==========================================================
 
 def get_top_ips(db: Session, limit: int = 10):
@@ -152,6 +144,33 @@ def get_recent_activity(db: Session, limit: int = 10):
 
 
 # ==========================================================
+# Recent Alerts
+# ==========================================================
+
+def get_recent_alerts(db: Session, limit: int = 10):
+
+    results = (
+        db.query(Alert)
+        .order_by(
+            Alert.created_at.desc(),
+            Alert.id.desc(),
+        )
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        {
+            "ip_address": row.ip_address,
+            "score": row.threatlens_score,
+            "severity": row.severity,
+            "created_at": row.created_at,
+        }
+        for row in results
+    ]
+
+
+# ==========================================================
 # Intelligence Source Statistics
 # ==========================================================
 
@@ -185,14 +204,25 @@ def get_threat_trends(db: Session):
 
     results = (
         db.query(
-            cast(ThreatScore.created_at, Date).label("date"),
-            func.count(ThreatScore.id).label("count")
+            cast(
+                ThreatScore.created_at,
+                Date
+            ).label("date"),
+            func.count(
+                ThreatScore.id
+            ).label("count")
         )
         .group_by(
-            cast(ThreatScore.created_at, Date)
+            cast(
+                ThreatScore.created_at,
+                Date
+            )
         )
         .order_by(
-            cast(ThreatScore.created_at, Date)
+            cast(
+                ThreatScore.created_at,
+                Date
+            )
         )
         .all()
     )
