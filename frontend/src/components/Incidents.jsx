@@ -35,10 +35,13 @@ function Incidents({ refreshKey = 0 }) {
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState("");
 
+  // IMPORTANT:
+  // Backend expects lowercase:
+  // critical / high / medium / low
   const [newIncident, setNewIncident] = useState({
     title: "",
     description: "",
-    severity: "Medium",
+    severity: "medium",
     ip_address: "",
   });
 
@@ -119,7 +122,8 @@ function Incidents({ refreshKey = 0 }) {
           getIncidentStats(),
         ]);
 
-      const incidentData = normalizeArray(incidentsResponse);
+      const incidentData =
+        normalizeArray(incidentsResponse);
 
       setIncidents(incidentData);
       setStats(statsResponse || null);
@@ -130,7 +134,8 @@ function Incidents({ refreshKey = 0 }) {
       );
 
       setError(
-        err?.message || "Unable to load incidents."
+        err?.message ||
+          "Unable to load incidents."
       );
     } finally {
       setLoading(false);
@@ -154,7 +159,7 @@ function Incidents({ refreshKey = 0 }) {
     setNewIncident({
       title: "",
       description: "",
-      severity: "Medium",
+      severity: "medium",
       ip_address: "",
     });
 
@@ -180,12 +185,19 @@ function Incidents({ refreshKey = 0 }) {
 
     setCreateError("");
 
-    const title = newIncident.title.trim();
-    const description = newIncident.description.trim();
-    const ipAddress = newIncident.ip_address.trim();
+    const title =
+      newIncident.title.trim();
+
+    const description =
+      newIncident.description.trim();
+
+    const ipAddress =
+      newIncident.ip_address.trim();
 
     if (!title) {
-      setCreateError("Incident title is required.");
+      setCreateError(
+        "Incident title is required."
+      );
       return;
     }
 
@@ -196,14 +208,46 @@ function Incidents({ refreshKey = 0 }) {
       return;
     }
 
+    // ------------------------------------------------------
+    // IMPORTANT:
+    // Always normalize severity before sending it.
+    // Backend expects lowercase enum values.
+    // ------------------------------------------------------
+
+    const severity =
+      String(
+        newIncident.severity || "medium"
+      )
+        .trim()
+        .toLowerCase();
+
+    const allowedSeverities = [
+      "critical",
+      "high",
+      "medium",
+      "low",
+    ];
+
+    if (
+      !allowedSeverities.includes(
+        severity
+      )
+    ) {
+      setCreateError(
+        "Invalid severity. Please select Critical, High, Medium or Low."
+      );
+      return;
+    }
+
     setCreateLoading(true);
 
     try {
       await createIncident({
         title,
         description,
-        severity: newIncident.severity || "Medium",
-        ip_address: ipAddress || null,
+        severity,
+        ip_address:
+          ipAddress || null,
       });
 
       setShowCreateModal(false);
@@ -211,7 +255,7 @@ function Incidents({ refreshKey = 0 }) {
       setNewIncident({
         title: "",
         description: "",
-        severity: "Medium",
+        severity: "medium",
         ip_address: "",
       });
 
@@ -223,7 +267,8 @@ function Incidents({ refreshKey = 0 }) {
       );
 
       setCreateError(
-        err?.message || "Unable to create incident."
+        err?.message ||
+          "Unable to create incident."
       );
     } finally {
       setCreateLoading(false);
@@ -245,7 +290,8 @@ function Incidents({ refreshKey = 0 }) {
       setSelectedIncident(null);
       setAttachedIntelligence([]);
 
-      const incident = await getIncident(incidentId);
+      const incident =
+        await getIncident(incidentId);
 
       setSelectedIncident(incident);
 
@@ -253,13 +299,18 @@ function Incidents({ refreshKey = 0 }) {
         setIntelligenceLoading(true);
 
         const intelligenceResponse =
-          await getIncidentIntelligence(incidentId);
+          await getIncidentIntelligence(
+            incidentId
+          );
 
         setAttachedIntelligence(
-          normalizeArray(intelligenceResponse, [
-            "intelligence",
-            "lookups",
-          ])
+          normalizeArray(
+            intelligenceResponse,
+            [
+              "intelligence",
+              "lookups",
+            ]
+          )
         );
       } catch (intelError) {
         console.error(
@@ -309,21 +360,51 @@ function Incidents({ refreshKey = 0 }) {
       return;
     }
 
+    // ------------------------------------------------------
+    // IMPORTANT:
+    // Backend expects lowercase status values.
+    // ------------------------------------------------------
+
+    const normalizedStatus =
+      String(status)
+        .trim()
+        .toLowerCase();
+
+    const allowedStatuses = [
+      "open",
+      "investigating",
+      "resolved",
+    ];
+
+    if (
+      !allowedStatuses.includes(
+        normalizedStatus
+      )
+    ) {
+      setSelectedError(
+        "Invalid incident status."
+      );
+      return;
+    }
+
     try {
       setUpdating(true);
       setSelectedError("");
 
-      const updated = await updateIncident(
-        selectedIncident.id,
-        {
-          status,
-        }
-      );
+      const updated =
+        await updateIncident(
+          selectedIncident.id,
+          {
+            status:
+              normalizedStatus,
+          }
+        );
 
       setSelectedIncident(
         updated || {
           ...selectedIncident,
-          status,
+          status:
+            normalizedStatus,
         }
       );
 
@@ -352,9 +433,10 @@ function Incidents({ refreshKey = 0 }) {
       return;
     }
 
-    const confirmed = window.confirm(
-      `Delete incident "${selectedIncident.title}"? This action cannot be undone.`
-    );
+    const confirmed =
+      window.confirm(
+        `Delete incident "${selectedIncident.title}"? This action cannot be undone.`
+      );
 
     if (!confirmed) {
       return;
@@ -364,7 +446,9 @@ function Incidents({ refreshKey = 0 }) {
       setDeleting(true);
       setSelectedError("");
 
-      await deleteIncident(selectedIncident.id);
+      await deleteIncident(
+        selectedIncident.id
+      );
 
       setSelectedIncident(null);
       setAttachedIntelligence([]);
@@ -411,11 +495,13 @@ function Incidents({ refreshKey = 0 }) {
   function normalizeStatus(value) {
     return String(value || "")
       .trim()
-      .toLowerCase();
+      .toLowerCase()
+      .replaceAll(" ", "_");
   }
 
   function getSeverityClass(value) {
-    const severity = normalizeSeverity(value);
+    const severity =
+      normalizeSeverity(value);
 
     if (severity === "critical") {
       return "critical";
@@ -437,7 +523,8 @@ function Incidents({ refreshKey = 0 }) {
   }
 
   function getStatusClass(value) {
-    const status = normalizeStatus(value);
+    const status =
+      normalizeStatus(value);
 
     if (
       status === "resolved" ||
@@ -482,7 +569,11 @@ function Incidents({ refreshKey = 0 }) {
 
     const date = new Date(value);
 
-    if (Number.isNaN(date.getTime())) {
+    if (
+      Number.isNaN(
+        date.getTime()
+      )
+    ) {
       return String(value);
     }
 
@@ -502,134 +593,163 @@ function Incidents({ refreshKey = 0 }) {
   // Filtered Incidents
   // ========================================================
 
-  const filteredIncidents = useMemo(() => {
-    const search = searchTerm.trim().toLowerCase();
+  const filteredIncidents =
+    useMemo(() => {
+      const search =
+        searchTerm
+          .trim()
+          .toLowerCase();
 
-    return incidents.filter((incident) => {
-      const title = String(
-        incident?.title || ""
-      ).toLowerCase();
+      return incidents.filter(
+        (incident) => {
+          const title =
+            String(
+              incident?.title || ""
+            ).toLowerCase();
 
-      const description = String(
-        incident?.description || ""
-      ).toLowerCase();
+          const description =
+            String(
+              incident?.description ||
+                ""
+            ).toLowerCase();
 
-      const ip = String(
-        getIncidentIP(incident)
-      ).toLowerCase();
+          const ip =
+            String(
+              getIncidentIP(
+                incident
+              )
+            ).toLowerCase();
 
-      const incidentSeverity = normalizeSeverity(
-        incident?.severity
+          const incidentSeverity =
+            normalizeSeverity(
+              incident?.severity
+            );
+
+          const incidentStatus =
+            normalizeStatus(
+              incident?.status
+            );
+
+          const matchesSearch =
+            !search ||
+            title.includes(search) ||
+            description.includes(search) ||
+            ip.includes(search);
+
+          const matchesSeverity =
+            severityFilter ===
+              "all" ||
+            incidentSeverity ===
+              severityFilter;
+
+          const matchesStatus =
+            statusFilter ===
+              "all" ||
+            incidentStatus ===
+              statusFilter;
+
+          return (
+            matchesSearch &&
+            matchesSeverity &&
+            matchesStatus
+          );
+        }
       );
-
-      const incidentStatus = normalizeStatus(
-        incident?.status
-      );
-
-      const matchesSearch =
-        !search ||
-        title.includes(search) ||
-        description.includes(search) ||
-        ip.includes(search);
-
-      const matchesSeverity =
-        severityFilter === "all" ||
-        incidentSeverity === severityFilter;
-
-      const matchesStatus =
-        statusFilter === "all" ||
-        incidentStatus === statusFilter;
-
-      return (
-        matchesSearch &&
-        matchesSeverity &&
-        matchesStatus
-      );
-    });
-  }, [
-    incidents,
-    searchTerm,
-    severityFilter,
-    statusFilter,
-  ]);
+    }, [
+      incidents,
+      searchTerm,
+      severityFilter,
+      statusFilter,
+    ]);
 
   // ========================================================
   // Statistics
   // ========================================================
 
-  const incidentStats = useMemo(() => {
-    const result = {
-      total: incidents.length,
-      open: 0,
-      investigating: 0,
-      resolved: 0,
-      critical: 0,
-      high: 0,
-    };
+  const incidentStats =
+    useMemo(() => {
+      const result = {
+        total: incidents.length,
+        open: 0,
+        investigating: 0,
+        resolved: 0,
+        critical: 0,
+        high: 0,
+      };
 
-    incidents.forEach((incident) => {
-      const status = normalizeStatus(
-        incident?.status
+      incidents.forEach(
+        (incident) => {
+          const status =
+            normalizeStatus(
+              incident?.status
+            );
+
+          const severity =
+            normalizeSeverity(
+              incident?.severity
+            );
+
+          if (status === "open") {
+            result.open += 1;
+          }
+
+          if (
+            status ===
+              "investigating" ||
+            status ===
+              "in_progress"
+          ) {
+            result.investigating += 1;
+          }
+
+          if (
+            status === "resolved" ||
+            status === "closed"
+          ) {
+            result.resolved += 1;
+          }
+
+          if (
+            severity === "critical"
+          ) {
+            result.critical += 1;
+          }
+
+          if (
+            severity === "high"
+          ) {
+            result.high += 1;
+          }
+        }
       );
 
-      const severity = normalizeSeverity(
-        incident?.severity
-      );
+      if (stats) {
+        result.total =
+          stats.total ??
+          stats.total_incidents ??
+          stats.count ??
+          result.total;
 
-      if (status === "open") {
-        result.open += 1;
+        result.open =
+          stats.open ??
+          stats.open_incidents ??
+          result.open;
+
+        result.investigating =
+          stats.investigating ??
+          stats.in_progress ??
+          stats.investigating_incidents ??
+          result.investigating;
+
+        result.resolved =
+          stats.resolved ??
+          stats.resolved_incidents ??
+          stats.closed ??
+          result.resolved;
       }
 
-      if (
-        status === "investigating" ||
-        status === "in_progress"
-      ) {
-        result.investigating += 1;
-      }
-
-      if (
-        status === "resolved" ||
-        status === "closed"
-      ) {
-        result.resolved += 1;
-      }
-
-      if (severity === "critical") {
-        result.critical += 1;
-      }
-
-      if (severity === "high") {
-        result.high += 1;
-      }
-    });
-
-    if (stats) {
-      result.total =
-        stats.total ??
-        stats.total_incidents ??
-        stats.count ??
-        result.total;
-
-      result.open =
-        stats.open ??
-        stats.open_incidents ??
-        result.open;
-
-      result.investigating =
-        stats.investigating ??
-        stats.in_progress ??
-        stats.investigating_incidents ??
-        result.investigating;
-
-      result.resolved =
-        stats.resolved ??
-        stats.resolved_incidents ??
-        stats.closed ??
-        result.resolved;
-    }
-
-    return result;
-  }, [incidents, stats]);
+      return result;
+    }, [incidents, stats]);
 
   // ========================================================
   // Loading State
@@ -639,13 +759,15 @@ function Incidents({ refreshKey = 0 }) {
     return (
       <section className="incidents-page">
         <div className="incidents-content">
+
           <div className="page-heading">
             <div>
               <h3>Incidents</h3>
 
               <p>
-                Track, investigate and manage
-                security incidents.
+                Track, investigate and
+                manage security
+                incidents.
               </p>
             </div>
           </div>
@@ -655,6 +777,7 @@ function Incidents({ refreshKey = 0 }) {
               Loading incidents...
             </div>
           </div>
+
         </div>
       </section>
     );
@@ -673,21 +796,25 @@ function Incidents({ refreshKey = 0 }) {
         ================================================== */}
 
         <div className="page-heading">
+
           <div>
             <h3>Incidents</h3>
 
             <p>
-              Track, investigate and manage
-              security incidents.
+              Track, investigate and
+              manage security
+              incidents.
             </p>
           </div>
 
           <div className="heading-actions">
+
             <button
               type="button"
               className="secondary-button"
               onClick={() =>
-                loadIncidents(true).catch(() => {})
+                loadIncidents(true)
+                  .catch(() => {})
               }
               disabled={refreshing}
             >
@@ -699,10 +826,13 @@ function Incidents({ refreshKey = 0 }) {
             <button
               type="button"
               className="primary-button"
-              onClick={openCreateModal}
+              onClick={
+                openCreateModal
+              }
             >
               + New Incident
             </button>
+
           </div>
         </div>
 
@@ -723,8 +853,11 @@ function Incidents({ refreshKey = 0 }) {
         <div className="stats-grid incidents-stats">
 
           <div className="stat-card">
+
             <div className="stat-header">
-              <span>Total Incidents</span>
+              <span>
+                Total Incidents
+              </span>
 
               <span className="stat-icon">
                 ◇
@@ -738,9 +871,11 @@ function Incidents({ refreshKey = 0 }) {
             <div className="stat-change">
               Security incidents
             </div>
+
           </div>
 
           <div className="stat-card">
+
             <div className="stat-header">
               <span>Open</span>
 
@@ -756,11 +891,15 @@ function Incidents({ refreshKey = 0 }) {
             <div className="stat-change">
               Awaiting investigation
             </div>
+
           </div>
 
           <div className="stat-card">
+
             <div className="stat-header">
-              <span>Investigating</span>
+              <span>
+                Investigating
+              </span>
 
               <span className="stat-icon">
                 ◎
@@ -772,13 +911,18 @@ function Incidents({ refreshKey = 0 }) {
             </strong>
 
             <div className="stat-change">
-              Currently under investigation
+              Currently under
+              investigation
             </div>
+
           </div>
 
           <div className="stat-card critical-card">
+
             <div className="stat-header">
-              <span>Critical / High</span>
+              <span>
+                Critical / High
+              </span>
 
               <span className="stat-icon">
                 ⚠
@@ -793,7 +937,9 @@ function Incidents({ refreshKey = 0 }) {
             <div className="stat-change negative">
               High-priority incidents
             </div>
+
           </div>
+
         </div>
 
         {/* ==================================================
@@ -803,14 +949,19 @@ function Incidents({ refreshKey = 0 }) {
         <div className="panel incidents-panel">
 
           <div className="panel-header">
+
             <div>
-              <h4>Incident Management</h4>
+              <h4>
+                Incident Management
+              </h4>
 
               <p>
-                Investigate and manage active
-                security incidents.
+                Investigate and manage
+                active security
+                incidents.
               </p>
             </div>
+
           </div>
 
           {/* ==================================================
@@ -886,21 +1037,30 @@ function Incidents({ refreshKey = 0 }) {
                 Resolved
               </option>
             </select>
+
           </div>
 
           {/* ==================================================
               INCIDENT TABLE
           ================================================== */}
 
-          {filteredIncidents.length === 0 ? (
+          {filteredIncidents.length ===
+          0 ? (
+
             <div className="chart-message">
+
               {incidents.length === 0
                 ? "No incidents have been created yet."
                 : "No incidents match the selected filters."}
+
             </div>
+
           ) : (
+
             <div className="table-wrapper incidents-table-wrapper">
+
               <table className="data-table">
+
                 <thead>
                   <tr>
                     <th>ID</th>
@@ -914,8 +1074,10 @@ function Incidents({ refreshKey = 0 }) {
                 </thead>
 
                 <tbody>
+
                   {filteredIncidents.map(
                     (incident) => {
+
                       const severityClass =
                         getSeverityClass(
                           incident?.severity
@@ -928,25 +1090,37 @@ function Incidents({ refreshKey = 0 }) {
 
                       return (
                         <tr
-                          key={incident?.id}
+                          key={
+                            incident?.id
+                          }
                         >
+
                           <td>
                             <strong>
-                              #{incident?.id}
+                              #
+                              {
+                                incident?.id
+                              }
                             </strong>
                           </td>
 
                           <td>
                             <div className="incident-title-cell">
+
                               <strong>
-                                {incident?.title ||
-                                  "Untitled Incident"}
+                                {
+                                  incident?.title ||
+                                  "Untitled Incident"
+                                }
                               </strong>
 
                               <small>
-                                {incident?.description ||
-                                  "No description"}
+                                {
+                                  incident?.description ||
+                                  "No description"
+                                }
                               </small>
+
                             </div>
                           </td>
 
@@ -999,14 +1173,19 @@ function Incidents({ refreshKey = 0 }) {
                               View
                             </button>
                           </td>
+
                         </tr>
                       );
                     }
                   )}
+
                 </tbody>
+
               </table>
+
             </div>
           )}
+
         </div>
 
         {/* ==================================================
@@ -1014,6 +1193,7 @@ function Incidents({ refreshKey = 0 }) {
         ================================================== */}
 
         {showCreateModal && (
+
           <div
             className="modal-overlay"
             onMouseDown={(event) => {
@@ -1025,10 +1205,13 @@ function Incidents({ refreshKey = 0 }) {
               }
             }}
           >
+
             <div className="scan-modal incident-modal">
 
               <div className="scan-modal-header">
+
                 <div>
+
                   <span className="modal-label">
                     INCIDENT MANAGEMENT
                   </span>
@@ -1041,17 +1224,23 @@ function Incidents({ refreshKey = 0 }) {
                     Create and track a new
                     security incident.
                   </p>
+
                 </div>
 
                 <button
                   type="button"
                   className="modal-close"
-                  onClick={closeCreateModal}
-                  disabled={createLoading}
+                  onClick={
+                    closeCreateModal
+                  }
+                  disabled={
+                    createLoading
+                  }
                   aria-label="Close"
                 >
                   ×
                 </button>
+
               </div>
 
               <form
@@ -1060,6 +1249,9 @@ function Incidents({ refreshKey = 0 }) {
                   handleCreateIncident
                 }
               >
+
+                {/* TITLE */}
+
                 <label htmlFor="incident-title">
                   Incident Title
                 </label>
@@ -1067,21 +1259,28 @@ function Incidents({ refreshKey = 0 }) {
                 <input
                   id="incident-title"
                   type="text"
-                  value={newIncident.title}
+                  value={
+                    newIncident.title
+                  }
                   onChange={(event) => {
                     setNewIncident(
                       (previous) => ({
                         ...previous,
                         title:
-                          event.target.value,
+                          event.target
+                            .value,
                       })
                     );
 
                     setCreateError("");
                   }}
                   placeholder="Suspicious IP activity"
-                  disabled={createLoading}
+                  disabled={
+                    createLoading
+                  }
                 />
+
+                {/* DESCRIPTION */}
 
                 <label htmlFor="incident-description">
                   Description
@@ -1097,7 +1296,8 @@ function Incidents({ refreshKey = 0 }) {
                       (previous) => ({
                         ...previous,
                         description:
-                          event.target.value,
+                          event.target
+                            .value,
                       })
                     );
 
@@ -1105,8 +1305,12 @@ function Incidents({ refreshKey = 0 }) {
                   }}
                   placeholder="Describe the security incident..."
                   rows={5}
-                  disabled={createLoading}
+                  disabled={
+                    createLoading
+                  }
                 />
+
+                {/* IP ADDRESS */}
 
                 <label htmlFor="incident-ip">
                   IP Address
@@ -1123,15 +1327,20 @@ function Incidents({ refreshKey = 0 }) {
                       (previous) => ({
                         ...previous,
                         ip_address:
-                          event.target.value,
+                          event.target
+                            .value,
                       })
                     );
 
                     setCreateError("");
                   }}
                   placeholder="185.220.101.1"
-                  disabled={createLoading}
+                  disabled={
+                    createLoading
+                  }
                 />
+
+                {/* SEVERITY */}
 
                 <label htmlFor="incident-severity">
                   Severity
@@ -1147,27 +1356,39 @@ function Incidents({ refreshKey = 0 }) {
                       (previous) => ({
                         ...previous,
                         severity:
-                          event.target.value,
+                          event.target
+                            .value
+                            .toLowerCase(),
                       })
                     )
                   }
-                  disabled={createLoading}
+                  disabled={
+                    createLoading
+                  }
                 >
-                  <option value="Critical">
+
+                  {/* IMPORTANT:
+                      Values are lowercase because
+                      FastAPI expects:
+                      critical, high, medium, low
+                  */}
+
+                  <option value="critical">
                     Critical
                   </option>
 
-                  <option value="High">
+                  <option value="high">
                     High
                   </option>
 
-                  <option value="Medium">
+                  <option value="medium">
                     Medium
                   </option>
 
-                  <option value="Low">
+                  <option value="low">
                     Low
                   </option>
+
                 </select>
 
                 {createError && (
@@ -1177,11 +1398,16 @@ function Incidents({ refreshKey = 0 }) {
                 )}
 
                 <div className="result-actions">
+
                   <button
                     type="button"
                     className="secondary-button"
-                    onClick={closeCreateModal}
-                    disabled={createLoading}
+                    onClick={
+                      closeCreateModal
+                    }
+                    disabled={
+                      createLoading
+                    }
                   >
                     Cancel
                   </button>
@@ -1189,15 +1415,21 @@ function Incidents({ refreshKey = 0 }) {
                   <button
                     type="submit"
                     className="primary-button"
-                    disabled={createLoading}
+                    disabled={
+                      createLoading
+                    }
                   >
                     {createLoading
                       ? "Creating..."
                       : "Create Incident"}
                   </button>
+
                 </div>
+
               </form>
+
             </div>
+
           </div>
         )}
 
@@ -1207,9 +1439,11 @@ function Incidents({ refreshKey = 0 }) {
 
         {(selectedLoading ||
           selectedIncident) && (
+
           <div
             className="modal-overlay"
             onMouseDown={(event) => {
+
               if (
                 event.target ===
                   event.currentTarget &&
@@ -1218,12 +1452,16 @@ function Incidents({ refreshKey = 0 }) {
               ) {
                 closeIncidentDetails();
               }
+
             }}
           >
+
             <div className="scan-modal incident-details-modal">
 
               {selectedLoading ? (
+
                 <div className="scan-progress">
+
                   <div className="spinner" />
 
                   <strong>
@@ -1234,14 +1472,22 @@ function Incidents({ refreshKey = 0 }) {
                     Retrieving incident
                     intelligence.
                   </span>
+
                 </div>
+
               ) : (
+
                 <>
+
                   <div className="scan-modal-header">
+
                     <div>
+
                       <span className="modal-label">
                         INCIDENT #
-                        {selectedIncident?.id}
+                        {
+                          selectedIncident?.id
+                        }
                       </span>
 
                       <h3>
@@ -1255,6 +1501,7 @@ function Incidents({ refreshKey = 0 }) {
                         attached threat
                         intelligence.
                       </p>
+
                     </div>
 
                     <button
@@ -1271,6 +1518,7 @@ function Incidents({ refreshKey = 0 }) {
                     >
                       ×
                     </button>
+
                   </div>
 
                   {selectedError && (
@@ -1286,11 +1534,13 @@ function Incidents({ refreshKey = 0 }) {
                   <div className="incident-detail-grid">
 
                     <div className="incident-detail-card">
+
                       <span>
                         SEVERITY
                       </span>
 
                       <strong>
+
                         <span
                           className={`risk ${getSeverityClass(
                             selectedIncident?.severity
@@ -1300,15 +1550,19 @@ function Incidents({ refreshKey = 0 }) {
                             selectedIncident?.severity
                           )}
                         </span>
+
                       </strong>
+
                     </div>
 
                     <div className="incident-detail-card">
+
                       <span>
                         STATUS
                       </span>
 
                       <strong>
+
                         <span
                           className={`incident-status ${getStatusClass(
                             selectedIncident?.status
@@ -1318,10 +1572,13 @@ function Incidents({ refreshKey = 0 }) {
                             selectedIncident?.status
                           )}
                         </span>
+
                       </strong>
+
                     </div>
 
                     <div className="incident-detail-card">
+
                       <span>
                         IP ADDRESS
                       </span>
@@ -1331,9 +1588,11 @@ function Incidents({ refreshKey = 0 }) {
                           selectedIncident
                         )}
                       </strong>
+
                     </div>
 
                     <div className="incident-detail-card">
+
                       <span>
                         CREATED
                       </span>
@@ -1343,7 +1602,9 @@ function Incidents({ refreshKey = 0 }) {
                           selectedIncident?.created_at
                         )}
                       </strong>
+
                     </div>
+
                   </div>
 
                   {/* ==================================================
@@ -1351,15 +1612,18 @@ function Incidents({ refreshKey = 0 }) {
                   ================================================== */}
 
                   <div className="incident-description">
+
                     <span>
                       DESCRIPTION
                     </span>
 
                     <p>
-                      {selectedIncident
-                        ?.description ||
-                        "No description provided."}
+                      {
+                        selectedIncident?.description ||
+                        "No description provided."
+                      }
                     </p>
+
                   </div>
 
                   {/* ==================================================
@@ -1367,7 +1631,9 @@ function Incidents({ refreshKey = 0 }) {
                   ================================================== */}
 
                   <div className="incident-actions-section">
+
                     <div>
+
                       <strong>
                         Update Status
                       </strong>
@@ -1377,6 +1643,7 @@ function Incidents({ refreshKey = 0 }) {
                         incident lifecycle
                         state.
                       </p>
+
                     </div>
 
                     <div className="incident-status-actions">
@@ -1392,7 +1659,7 @@ function Incidents({ refreshKey = 0 }) {
                         }`}
                         onClick={() =>
                           handleStatusUpdate(
-                            "Open"
+                            "open"
                           )
                         }
                         disabled={
@@ -1408,16 +1675,18 @@ function Incidents({ refreshKey = 0 }) {
                         className={`incident-action-button ${
                           normalizeStatus(
                             selectedIncident?.status
-                          ) === "investigating" ||
+                          ) ===
+                            "investigating" ||
                           normalizeStatus(
                             selectedIncident?.status
-                          ) === "in_progress"
+                          ) ===
+                            "in_progress"
                             ? "selected"
                             : ""
                         }`}
                         onClick={() =>
                           handleStatusUpdate(
-                            "Investigating"
+                            "investigating"
                           )
                         }
                         disabled={
@@ -1439,7 +1708,7 @@ function Incidents({ refreshKey = 0 }) {
                         }`}
                         onClick={() =>
                           handleStatusUpdate(
-                            "Resolved"
+                            "resolved"
                           )
                         }
                         disabled={
@@ -1449,7 +1718,9 @@ function Incidents({ refreshKey = 0 }) {
                       >
                         Resolved
                       </button>
+
                     </div>
+
                   </div>
 
                   {/* ==================================================
@@ -1459,61 +1730,80 @@ function Incidents({ refreshKey = 0 }) {
                   <div className="incident-intelligence">
 
                     <div className="panel-header">
+
                       <div>
+
                         <h4>
                           Attached Intelligence
                         </h4>
 
                         <p>
                           Threat intelligence
-                          associated with this
-                          incident.
+                          associated with
+                          this incident.
                         </p>
+
                       </div>
+
                     </div>
 
                     {intelligenceLoading ? (
+
                       <div className="chart-message">
                         Loading attached
                         intelligence...
                       </div>
+
                     ) : attachedIntelligence.length ===
                       0 ? (
+
                       <div className="chart-message">
                         No intelligence
                         lookups are attached
                         to this incident.
                       </div>
+
                     ) : (
+
                       <div className="table-wrapper incidents-table-wrapper">
+
                         <table className="data-table">
+
                           <thead>
+
                             <tr>
                               <th>ID</th>
+
                               <th>
                                 IP Address
                               </th>
+
                               <th>
                                 Source
                               </th>
+
                               <th>
                                 Created
                               </th>
                             </tr>
+
                           </thead>
 
                           <tbody>
+
                             {attachedIntelligence.map(
                               (
                                 intelligence,
                                 index
                               ) => (
+
                                 <tr
                                   key={
                                     intelligence?.id ||
                                     index
                                   }
                                 >
+
                                   <td>
                                     #
                                     {
@@ -1523,35 +1813,40 @@ function Incidents({ refreshKey = 0 }) {
 
                                   <td>
                                     <span className="mono-text">
-                                      {intelligence
-                                        ?.ip_address ||
-                                        intelligence
-                                          ?.ip ||
-                                        "—"}
+                                      {
+                                        intelligence?.ip_address ||
+                                        intelligence?.ip ||
+                                        "—"
+                                      }
                                     </span>
                                   </td>
 
                                   <td>
-                                    {intelligence
-                                      ?.source ||
-                                      intelligence
-                                        ?.provider ||
-                                      "Threat Intelligence"}
+                                    {
+                                      intelligence?.source ||
+                                      intelligence?.provider ||
+                                      "Threat Intelligence"
+                                    }
                                   </td>
 
                                   <td>
                                     {formatDate(
-                                      intelligence
-                                        ?.created_at
+                                      intelligence?.created_at
                                     )}
                                   </td>
+
                                 </tr>
+
                               )
                             )}
+
                           </tbody>
+
                         </table>
+
                       </div>
                     )}
+
                   </div>
 
                   {/* ==================================================
@@ -1589,12 +1884,18 @@ function Incidents({ refreshKey = 0 }) {
                         ? "Deleting..."
                         : "Delete Incident"}
                     </button>
+
                   </div>
+
                 </>
+
               )}
+
             </div>
+
           </div>
         )}
+
       </div>
     </section>
   );
@@ -1605,3 +1906,4 @@ function Incidents({ refreshKey = 0 }) {
 // ==========================================================
 
 export default Incidents;
+
