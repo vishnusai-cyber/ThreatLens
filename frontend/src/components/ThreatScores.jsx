@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 
 import "../index.css";
 
+import { getThreatScores } from "../api";
+
 // ==========================================================
 // ThreatLens - Threat Scores
 // ==========================================================
@@ -9,11 +11,15 @@ import "../index.css";
 function ThreatScores() {
   const [scores, setScores] = useState([]);
 
+  const [total, setTotal] = useState(0);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
   const [error, setError] = useState("");
 
   const [offset, setOffset] = useState(0);
+
   const limit = 10;
 
   // ========================================================
@@ -30,46 +36,31 @@ function ThreatScores() {
 
       setError("");
 
-      /*
-       * ThreatLens ThreatScore endpoint.
-       *
-       * The frontend first attempts the common endpoint:
-       * GET /threat-scores
-       *
-       * If your API returns a wrapped response, it is
-       * normalized below.
-       */
-
-      const response = await fetch(
-        `http://127.0.0.1:8001/threat-scores?limit=${limit}&offset=${offset}`,
-        {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-          },
-        }
+      const data = await getThreatScores(
+        limit,
+        offset
       );
 
-      if (!response.ok) {
-        throw new Error(
-          `Threat Scores API returned ${response.status}`
-        );
-      }
+      console.log(
+        "[ThreatLens] Threat Scores response:",
+        data
+      );
 
-      const data = await response.json();
-
-      // ----------------------------------------------------
-      // Normalize response
-      // ----------------------------------------------------
+      // ====================================================
+      // Normalize API response
+      // ====================================================
 
       let normalized = [];
 
       if (Array.isArray(data)) {
         normalized = data;
-      } else if (data && typeof data === "object") {
+      } else if (
+        data &&
+        typeof data === "object"
+      ) {
         normalized =
-          data.data ||
           data.items ||
+          data.data ||
           data.results ||
           data.threat_scores ||
           data.threatScores ||
@@ -82,11 +73,34 @@ function ThreatScores() {
 
       setScores(normalized);
 
+      // Backend returns:
+      // {
+      //   items: [...],
+      //   total: 4,
+      //   limit: 10,
+      //   offset: 0
+      // }
+
+      const backendTotal = Number(
+        data?.total
+      );
+
+      if (
+        Number.isFinite(backendTotal)
+      ) {
+        setTotal(backendTotal);
+      } else {
+        setTotal(normalized.length);
+      }
+
     } catch (err) {
       console.error(
         "ThreatLens Threat Scores error:",
         err
       );
+
+      setScores([]);
+      setTotal(0);
 
       setError(
         err?.message ||
@@ -99,7 +113,7 @@ function ThreatScores() {
   }
 
   // ========================================================
-  // Initial Load
+  // Initial Load / Pagination
   // ========================================================
 
   useEffect(() => {
@@ -153,8 +167,6 @@ function ThreatScores() {
   // ========================================================
 
   function getSeverity(item) {
-    const score = getScore(item);
-
     const explicitSeverity =
       item?.severity ||
       item?.risk_level ||
@@ -167,6 +179,8 @@ function ThreatScores() {
         explicitSeverity
       ).toLowerCase();
     }
+
+    const score = getScore(item);
 
     if (score >= 80) {
       return "critical";
@@ -238,6 +252,18 @@ function ThreatScores() {
   }
 
   // ========================================================
+  // Recommendation
+  // ========================================================
+
+  function getRecommendation(item) {
+    return (
+      item?.recommendation ||
+      item?.action ||
+      "—"
+    );
+  }
+
+  // ========================================================
   // Timestamp
   // ========================================================
 
@@ -252,13 +278,17 @@ function ThreatScores() {
       return "—";
     }
 
-    try {
-      return new Date(
-        timestamp
-      ).toLocaleString();
-    } catch {
+    const date = new Date(timestamp);
+
+    if (
+      Number.isNaN(
+        date.getTime()
+      )
+    ) {
       return String(timestamp);
     }
+
+    return date.toLocaleString();
   }
 
   // ========================================================
@@ -286,22 +316,39 @@ function ThreatScores() {
   // ========================================================
 
   function previousPage() {
-    setOffset(
-      (current) =>
-        Math.max(0, current - limit)
+    setOffset((current) =>
+      Math.max(
+        0,
+        current - limit
+      )
     );
   }
 
   function nextPage() {
-    if (scores.length < limit) {
+    if (
+      offset + scores.length >=
+      total
+    ) {
       return;
     }
 
-    setOffset(
-      (current) =>
-        current + limit
+    setOffset((current) =>
+      current + limit
     );
   }
+
+  const currentPage =
+    Math.floor(
+      offset / limit
+    ) + 1;
+
+  const totalPages =
+    Math.max(
+      1,
+      Math.ceil(
+        total / limit
+      )
+    );
 
   // ========================================================
   // Render
@@ -373,6 +420,8 @@ function ThreatScores() {
 
           <div className="stats-grid">
 
+            {/* RECORDS */}
+
             <div className="stat-card">
 
               <div className="stat-header">
@@ -388,14 +437,16 @@ function ThreatScores() {
               </div>
 
               <strong>
-                {scores.length}
+                {total}
               </strong>
 
               <div className="stat-change">
-                Threat score records
+                Total threat score records
               </div>
 
             </div>
+
+            {/* CRITICAL */}
 
             <div className="stat-card critical-card">
 
@@ -427,6 +478,8 @@ function ThreatScores() {
 
             </div>
 
+            {/* HIGH */}
+
             <div className="stat-card">
 
               <div className="stat-header">
@@ -457,6 +510,8 @@ function ThreatScores() {
 
             </div>
 
+            {/* AVERAGE */}
+
             <div className="stat-card">
 
               <div className="stat-header">
@@ -476,10 +531,10 @@ function ThreatScores() {
                 {Math.round(
                   scores.reduce(
                     (
-                      total,
+                      totalScore,
                       item
                     ) =>
-                      total +
+                      totalScore +
                       getScore(item),
                     0
                   ) /
@@ -502,7 +557,7 @@ function ThreatScores() {
         )}
 
       {/* ==================================================
-          THREAT SCORE TABLE
+          TABLE PANEL
       ================================================== */}
 
       <div className="panel">
@@ -524,7 +579,11 @@ function ThreatScores() {
           {!loading && (
 
             <span className="input-hint">
-              Showing {scores.length} records
+              Showing{" "}
+              {scores.length}{" "}
+              of{" "}
+              {total}{" "}
+              records
             </span>
 
           )}
@@ -556,10 +615,46 @@ function ThreatScores() {
 
           </div>
 
+        ) : error ? (
+
+          /* ==================================================
+              ERROR STATE
+          ================================================== */
+
+          <div className="chart-message">
+
+            <strong>
+              Failed to fetch threat scores.
+            </strong>
+
+            <br />
+
+            <span>
+              {error}
+            </span>
+
+            <br />
+
+            <br />
+
+            <button
+              className="primary-button"
+              onClick={() =>
+                loadThreatScores(true)
+              }
+              disabled={refreshing}
+            >
+              {refreshing
+                ? "Retrying..."
+                : "Retry"}
+            </button>
+
+          </div>
+
         ) : scores.length === 0 ? (
 
           /* ==================================================
-              EMPTY
+              EMPTY STATE
           ================================================== */
 
           <div className="chart-message">
@@ -583,13 +678,19 @@ function ThreatScores() {
 
           <div
             style={{
-              overflowX: "auto",
+              overflowX:
+                "auto",
+              width:
+                "100%",
             }}
           >
 
             <table
               style={{
-                width: "100%",
+                width:
+                  "100%",
+                minWidth:
+                  "900px",
                 borderCollapse:
                   "collapse",
               }}
@@ -737,8 +838,6 @@ function ThreatScores() {
                         }}
                       >
 
-                        {/* ID */}
-
                         <td
                           style={{
                             padding:
@@ -747,12 +846,11 @@ function ThreatScores() {
                               0.7,
                           }}
                         >
-                          #{getRecordID(
+                          #
+                          {getRecordID(
                             item
                           )}
                         </td>
-
-                        {/* IP */}
 
                         <td
                           style={{
@@ -760,16 +858,12 @@ function ThreatScores() {
                               "16px 14px",
                           }}
                         >
-
                           <strong>
                             {getIP(
                               item
                             )}
                           </strong>
-
                         </td>
-
-                        {/* SCORE */}
 
                         <td
                           style={{
@@ -810,8 +904,6 @@ function ThreatScores() {
 
                         </td>
 
-                        {/* SEVERITY */}
-
                         <td
                           style={{
                             padding:
@@ -829,8 +921,6 @@ function ThreatScores() {
 
                         </td>
 
-                        {/* INCIDENT */}
-
                         <td
                           style={{
                             padding:
@@ -844,8 +934,6 @@ function ThreatScores() {
                           )}
                         </td>
 
-                        {/* ALERT */}
-
                         <td
                           style={{
                             padding:
@@ -858,8 +946,6 @@ function ThreatScores() {
                             item
                           )}
                         </td>
-
-                        {/* CREATED */}
 
                         <td
                           style={{
@@ -893,6 +979,7 @@ function ThreatScores() {
         ================================================== */}
 
         {!loading &&
+          !error &&
           scores.length > 0 && (
 
             <div
@@ -934,9 +1021,10 @@ function ThreatScores() {
                 }}
               >
                 Page{" "}
-                {Math.floor(
-                  offset / limit
-                ) + 1}
+                {currentPage}
+                {" "}
+                of{" "}
+                {totalPages}
               </span>
 
               <button
@@ -945,8 +1033,9 @@ function ThreatScores() {
                   nextPage
                 }
                 disabled={
-                  scores.length <
-                    limit ||
+                  offset +
+                    scores.length >=
+                    total ||
                   refreshing
                 }
               >
