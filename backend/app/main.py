@@ -40,8 +40,12 @@ app.add_middleware(
     CORSMiddleware,
 
     allow_origins=[
+        # Local development
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+
+        # Production frontend
+        "https://threatlens-yf83.onrender.com",
     ],
 
     allow_credentials=True,
@@ -130,7 +134,6 @@ app.include_router(
 
 @app.get("/")
 def root():
-
     return {
         "message": "ThreatLens API is Running 🚀"
     }
@@ -142,7 +145,6 @@ def root():
 
 @app.get("/health")
 def health():
-
     return {
         "status": "healthy",
         "service": "ThreatLens API",
