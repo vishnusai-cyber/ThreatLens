@@ -6,20 +6,9 @@
 // ==========================================================
 // API BASE URL
 // ==========================================================
-//
-// Development:
-//   VITE_API_BASE_URL=http://127.0.0.1:8001
-//
-// Production:
-//   VITE_API_BASE_URL=https://api.yourdomain.com
-//
-// If VITE_API_BASE_URL is not defined, the client falls back
-// to the local FastAPI development server.
-//
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ||
-  "http://127.0.0.1:8001";
+  "https://threatlens-backend-skzr.onrender.com";
 
 // ==========================================================
 // Token Storage
@@ -63,7 +52,10 @@ async function apiRequest(endpoint, options = {}) {
       headers,
     });
   } catch (error) {
-    console.error("[ThreatLens API] Connection error:", error);
+    console.error(
+      "[ThreatLens API] Connection error:",
+      error
+    );
 
     throw new Error(
       "Unable to connect to ThreatLens API. Please verify that the backend is running."
@@ -96,8 +88,6 @@ async function apiRequest(endpoint, options = {}) {
   if (response.status === 401) {
     logoutUser();
 
-    // Do not automatically redirect here.
-    // App.jsx can decide how authentication state is handled.
     throw new Error(
       "Your session has expired. Please sign in again."
     );
@@ -111,7 +101,10 @@ async function apiRequest(endpoint, options = {}) {
     let message =
       `Request failed with status ${response.status}`;
 
-    if (typeof data === "string" && data.trim()) {
+    if (
+      typeof data === "string" &&
+      data.trim()
+    ) {
       message = data;
     } else if (data?.detail) {
       if (Array.isArray(data.detail)) {
@@ -194,9 +187,12 @@ export async function loginUser(email, password) {
     throw new Error("Password is required.");
   }
 
-  console.log("[ThreatLens] POST /auth/login", {
-    email: cleanEmail,
-  });
+  console.log(
+    "[ThreatLens] POST /auth/login",
+    {
+      email: cleanEmail,
+    }
+  );
 
   const data = await apiRequest("/auth/login", {
     method: "POST",
@@ -237,20 +233,28 @@ export async function registerUser(userData) {
     userData.email || ""
   ).trim();
 
-  const password = userData.password || "";
+  const password =
+    userData.password || "";
 
-  const role = userData.role || "viewer";
+  const role =
+    userData.role || "viewer";
 
   if (!username) {
-    throw new Error("Username is required.");
+    throw new Error(
+      "Username is required."
+    );
   }
 
   if (!email) {
-    throw new Error("Email is required.");
+    throw new Error(
+      "Email is required."
+    );
   }
 
   if (!password) {
-    throw new Error("Password is required.");
+    throw new Error(
+      "Password is required."
+    );
   }
 
   console.log(
@@ -262,23 +266,28 @@ export async function registerUser(userData) {
     }
   );
 
-  return await apiRequest("/auth/register", {
-    method: "POST",
+  return await apiRequest(
+    "/auth/register",
+    {
+      method: "POST",
 
-    body: JSON.stringify({
-      username,
-      email,
-      password,
-      role,
-    }),
-  });
+      body: JSON.stringify({
+        username,
+        email,
+        password,
+        role,
+      }),
+    }
+  );
 }
 
 // ==========================================================
 // CURRENT USER
 // ==========================================================
 
-export async function getCurrentUser(token = null) {
+export async function getCurrentUser(
+  token = null
+) {
   const authToken =
     token || getAuthToken();
 
@@ -288,13 +297,17 @@ export async function getCurrentUser(token = null) {
     );
   }
 
-  return await apiRequest("/auth/me", {
-    method: "GET",
+  return await apiRequest(
+    "/auth/me",
+    {
+      method: "GET",
 
-    headers: {
-      Authorization: `Bearer ${authToken}`,
-    },
-  });
+      headers: {
+        Authorization:
+          `Bearer ${authToken}`,
+      },
+    }
+  );
 }
 
 // ==========================================================
@@ -362,8 +375,11 @@ export async function getThreatTrends() {
 // THREAT INTELLIGENCE
 // ==========================================================
 
-export async function getThreatIntelligence(ip) {
-  const cleanIP = String(ip || "").trim();
+export async function getThreatIntelligence(
+  ip
+) {
+  const cleanIP =
+    String(ip || "").trim();
 
   if (!cleanIP) {
     throw new Error(
@@ -386,7 +402,8 @@ export async function getThreatIntelligence(ip) {
 // ==========================================================
 
 export async function getAbuseIPDB(ip) {
-  const cleanIP = String(ip || "").trim();
+  const cleanIP =
+    String(ip || "").trim();
 
   if (!cleanIP) {
     throw new Error(
@@ -409,7 +426,8 @@ export async function getAbuseIPDB(ip) {
 // ==========================================================
 
 export async function getOTX(ip) {
-  const cleanIP = String(ip || "").trim();
+  const cleanIP =
+    String(ip || "").trim();
 
   if (!cleanIP) {
     throw new Error(
@@ -432,7 +450,8 @@ export async function getOTX(ip) {
 // ==========================================================
 
 export async function correlateIP(ip) {
-  const cleanIP = String(ip || "").trim();
+  const cleanIP =
+    String(ip || "").trim();
 
   if (!cleanIP) {
     throw new Error(
@@ -464,7 +483,8 @@ export async function getIntelligenceHistory(
   ip = "",
   source = ""
 ) {
-  const params = new URLSearchParams();
+  const params =
+    new URLSearchParams();
 
   params.set(
     "limit",
@@ -512,7 +532,10 @@ export async function getThreats() {
 }
 
 export async function getThreat(id) {
-  if (id === undefined || id === null) {
+  if (
+    id === undefined ||
+    id === null
+  ) {
     throw new Error(
       "Threat ID is required."
     );
@@ -546,7 +569,10 @@ export async function updateThreat(
   id,
   data
 ) {
-  if (id === undefined || id === null) {
+  if (
+    id === undefined ||
+    id === null
+  ) {
     throw new Error(
       "Threat ID is required."
     );
@@ -562,7 +588,10 @@ export async function updateThreat(
 }
 
 export async function deleteThreat(id) {
-  if (id === undefined || id === null) {
+  if (
+    id === undefined ||
+    id === null
+  ) {
     throw new Error(
       "Threat ID is required."
     );
@@ -609,7 +638,10 @@ export async function updateAlert(
   id,
   data
 ) {
-  if (id === undefined || id === null) {
+  if (
+    id === undefined ||
+    id === null
+  ) {
     throw new Error(
       "Alert ID is required."
     );
@@ -638,7 +670,10 @@ export async function getIncidents() {
 }
 
 export async function getIncident(id) {
-  if (id === undefined || id === null) {
+  if (
+    id === undefined ||
+    id === null
+  ) {
     throw new Error(
       "Incident ID is required."
     );
@@ -661,7 +696,9 @@ export async function getIncidentStats() {
   );
 }
 
-export async function createIncident(data) {
+export async function createIncident(
+  data
+) {
   if (!data) {
     throw new Error(
       "Incident data is required."
@@ -681,7 +718,10 @@ export async function updateIncident(
   id,
   data
 ) {
-  if (id === undefined || id === null) {
+  if (
+    id === undefined ||
+    id === null
+  ) {
     throw new Error(
       "Incident ID is required."
     );
@@ -697,7 +737,10 @@ export async function updateIncident(
 }
 
 export async function deleteIncident(id) {
-  if (id === undefined || id === null) {
+  if (
+    id === undefined ||
+    id === null
+  ) {
     throw new Error(
       "Incident ID is required."
     );
@@ -815,7 +858,10 @@ export async function getThreatScores() {
 }
 
 export async function getThreatScore(id) {
-  if (id === undefined || id === null) {
+  if (
+    id === undefined ||
+    id === null
+  ) {
     throw new Error(
       "Threat score ID is required."
     );
@@ -857,9 +903,12 @@ export async function apiGet(endpoint) {
     );
   }
 
-  return await apiRequest(endpoint, {
-    method: "GET",
-  });
+  return await apiRequest(
+    endpoint,
+    {
+      method: "GET",
+    }
+  );
 }
 
 // ==========================================================
@@ -876,10 +925,13 @@ export async function apiPost(
     );
   }
 
-  return await apiRequest(endpoint, {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  return await apiRequest(
+    endpoint,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    }
+  );
 }
 
 // ==========================================================
@@ -896,30 +948,40 @@ export async function apiPut(
     );
   }
 
-  return await apiRequest(endpoint, {
-    method: "PUT",
-    body: JSON.stringify(data),
-  });
+  return await apiRequest(
+    endpoint,
+    {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }
+  );
 }
 
 // ==========================================================
 // GENERIC DELETE
 // ==========================================================
 
-export async function apiDelete(endpoint) {
+export async function apiDelete(
+  endpoint
+) {
   if (!endpoint) {
     throw new Error(
       "API endpoint is required."
     );
   }
 
-  return await apiRequest(endpoint, {
-    method: "DELETE",
-  });
+  return await apiRequest(
+    endpoint,
+    {
+      method: "DELETE",
+    }
+  );
 }
 
 // ==========================================================
 // API CONFIGURATION
 // ==========================================================
 
-export { API_BASE_URL };
+export {
+  API_BASE_URL,
+};
