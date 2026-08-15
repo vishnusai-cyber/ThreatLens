@@ -7,6 +7,11 @@ import {
   getRecentAlerts,
   getThreatTrends,
   correlateIP,
+  loginUser,
+  registerUser,
+  getCurrentUser,
+  getAuthToken,
+  logoutUser,
 } from "./api";
 
 import ThreatIntelligence from "./components/ThreatIntelligence";
@@ -17,6 +22,20 @@ import Incidents from "./components/Incidents";
 import Correlation from "./components/Correlation";
 
 import "./index.css";
+
+// ==========================================================
+// ThreatLens - Default Settings
+// ==========================================================
+
+const DEFAULT_SETTINGS = {
+  realtimeMonitoring: true,
+  automaticCorrelation: true,
+  alertNotifications: true,
+  soundNotifications: false,
+  darkMode: true,
+  autoRefresh: true,
+  refreshInterval: "30",
+};
 
 // ==========================================================
 // ThreatLens - Security Operations Center
@@ -48,8 +67,7 @@ function App() {
     useState(0);
   const [threatScoresRefreshKey, setThreatScoresRefreshKey] =
     useState(0);
-  const [historyRefreshKey, setHistoryRefreshKey] =
-    useState(0);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
 
   // ========================================================
   // Dashboard Refresh Timestamp
@@ -65,18 +83,88 @@ function App() {
   const [activePage, setActivePage] = useState("Dashboard");
 
   // ========================================================
+  // Authentication
+  // ========================================================
+
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+
+  const [authMode, setAuthMode] = useState("login");
+
+  // ========================================================
+  // Login
+  // ========================================================
+
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState("");
+
+  // ========================================================
+  // Register
+  // ========================================================
+
+  const [registerUsername, setRegisterUsername] = useState("");
+  const [registerEmail, setRegisterEmail] = useState("");
+  const [registerPassword, setRegisterPassword] = useState("");
+  const [registerConfirmPassword, setRegisterConfirmPassword] =
+    useState("");
+  const [registerLoading, setRegisterLoading] = useState(false);
+  const [registerError, setRegisterError] = useState("");
+  const [registerSuccess, setRegisterSuccess] = useState("");
+
+  // ========================================================
+  // Profile
+  // ========================================================
+
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+
+  // ========================================================
   // Settings
   // ========================================================
 
-  const [settings, setSettings] = useState({
-    realtimeMonitoring: true,
-    automaticCorrelation: true,
-    alertNotifications: true,
-    soundNotifications: false,
-    darkMode: true,
-    autoRefresh: true,
-    refreshInterval: "30",
+  const [settings, setSettings] = useState(() => {
+    try {
+      const savedSettings = localStorage.getItem(
+        "threatlens_settings"
+      );
+
+      if (savedSettings) {
+        return {
+          ...DEFAULT_SETTINGS,
+          ...JSON.parse(savedSettings),
+        };
+      }
+
+      return DEFAULT_SETTINGS;
+    } catch (error) {
+      console.error(
+        "ThreatLens: Failed to load settings:",
+        error
+      );
+
+      return DEFAULT_SETTINGS;
+    }
   });
+
+  // ========================================================
+  // Persist Settings
+  // ========================================================
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "threatlens_settings",
+        JSON.stringify(settings)
+      );
+    } catch (error) {
+      console.error(
+        "ThreatLens: Failed to save settings:",
+        error
+      );
+    }
+  }, [settings]);
 
   // ========================================================
   // Dashboard Scan Modal
@@ -118,6 +206,237 @@ function App() {
   }
 
   // ========================================================
+  // Authentication Verification
+  // ========================================================
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function verifyAuthentication() {
+      const token = getAuthToken();
+
+      if (!token) {
+        if (mounted) {
+          setIsAuthenticated(false);
+          setCurrentUser(null);
+          setAuthLoading(false);
+        }
+
+        return;
+      }
+
+      try {
+        const user = await getCurrentUser(token);
+
+        if (!mounted) {
+          return;
+        }
+
+        setCurrentUser(user);
+        setIsAuthenticated(true);
+      } catch (error) {
+        console.error(
+          "ThreatLens authentication verification failed:",
+          error
+        );
+
+        logoutUser();
+
+        if (mounted) {
+          setIsAuthenticated(false);
+          setCurrentUser(null);
+        }
+      } finally {
+        if (mounted) {
+          setAuthLoading(false);
+        }
+      }
+    }
+
+    verifyAuthentication();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // ========================================================
+  // Login
+  // ========================================================
+
+  async function handleLogin(event) {
+    event.preventDefault();
+
+    setLoginError("");
+    setRegisterSuccess("");
+
+    const email = loginEmail.trim();
+
+    if (!email) {
+      setLoginError("Email is required.");
+      return;
+    }
+
+    if (!loginPassword) {
+      setLoginError("Password is required.");
+      return;
+    }
+
+    setLoginLoading(true);
+
+    try {
+      const loginResponse = await loginUser(
+        email,
+        loginPassword
+      );
+
+      const token = loginResponse?.access_token;
+
+      if (!token) {
+        throw new Error(
+          "Authentication token was not returned by the server."
+        );
+      }
+
+      const user = await getCurrentUser(token);
+
+      setCurrentUser(user);
+      setIsAuthenticated(true);
+      setLoginPassword("");
+      setLoginError("");
+      setActivePage("Dashboard");
+
+      await loadDashboard(false);
+    } catch (error) {
+      console.error("ThreatLens login failed:", error);
+
+      logoutUser();
+
+      setIsAuthenticated(false);
+      setCurrentUser(null);
+
+      setLoginError(
+        error?.message ||
+          "Unable to login. Please verify your credentials."
+      );
+    } finally {
+      setLoginLoading(false);
+    }
+  }
+
+  // ========================================================
+  // Register
+  // ========================================================
+
+  async function handleRegister(event) {
+    event.preventDefault();
+
+    setRegisterError("");
+    setRegisterSuccess("");
+
+    const username = registerUsername.trim();
+    const email = registerEmail.trim();
+
+    if (!username) {
+      setRegisterError("Username is required.");
+      return;
+    }
+
+    if (!email) {
+      setRegisterError("Email is required.");
+      return;
+    }
+
+    if (!registerPassword) {
+      setRegisterError("Password is required.");
+      return;
+    }
+
+    if (registerPassword.length < 6) {
+      setRegisterError(
+        "Password must be at least 6 characters."
+      );
+      return;
+    }
+
+    if (registerPassword !== registerConfirmPassword) {
+      setRegisterError("Passwords do not match.");
+      return;
+    }
+
+    setRegisterLoading(true);
+
+    try {
+      await registerUser({
+        username,
+        email,
+        password: registerPassword,
+        role: "viewer",
+      });
+
+      setRegisterUsername("");
+      setRegisterEmail("");
+      setRegisterPassword("");
+      setRegisterConfirmPassword("");
+
+      setRegisterSuccess(
+        "Account created successfully. You can now sign in."
+      );
+
+      setAuthMode("login");
+      setLoginEmail(email);
+      setLoginPassword("");
+      setLoginError("");
+    } catch (error) {
+      console.error(
+        "ThreatLens registration failed:",
+        error
+      );
+
+      setRegisterError(
+        error?.message ||
+          "Unable to create account. Please try again."
+      );
+    } finally {
+      setRegisterLoading(false);
+    }
+  }
+
+  // ========================================================
+  // Logout
+  // ========================================================
+
+  function handleLogout() {
+    logoutUser();
+
+    setIsAuthenticated(false);
+    setCurrentUser(null);
+    setProfileMenuOpen(false);
+    setActivePage("Dashboard");
+
+    setOverview(null);
+    setSeverity([]);
+    setTopIPs([]);
+    setRecentAlerts([]);
+    setTrends([]);
+
+    setLastDashboardRefresh(null);
+
+    setLoginEmail("");
+    setLoginPassword("");
+    setLoginError("");
+
+    setAuthMode("login");
+
+    setRegisterUsername("");
+    setRegisterEmail("");
+    setRegisterPassword("");
+    setRegisterConfirmPassword("");
+    setRegisterError("");
+    setRegisterSuccess("");
+  }
+
+  // ========================================================
   // Dashboard Loading
   // ========================================================
 
@@ -130,18 +449,6 @@ function App() {
       }
 
       setDashboardError("");
-
-      console.log(
-        "=============================================="
-      );
-
-      console.log(
-        "ThreatLens: Loading fresh dashboard data..."
-      );
-
-      console.log(
-        "=============================================="
-      );
 
       const [
         overviewData,
@@ -157,81 +464,16 @@ function App() {
         getThreatTrends(),
       ]);
 
-      // ----------------------------------------------------
-      // Overview
-      // ----------------------------------------------------
-
       setOverview(overviewData);
-
-      // ----------------------------------------------------
-      // Severity
-      // ----------------------------------------------------
-
-      const normalizedSeverity =
-        normalizeArray(severityData);
-
-      setSeverity(normalizedSeverity);
-
-      console.log(
-        "ThreatLens severity refreshed:",
-        normalizedSeverity
+      setSeverity(normalizeArray(severityData));
+      setTopIPs(normalizeArray(topIPsData));
+      setRecentAlerts(normalizeArray(recentAlertsData));
+      setTrends(
+        normalizeArray(trendsData, ["trends"])
       );
-
-      // ----------------------------------------------------
-      // Top IPs
-      // ----------------------------------------------------
-
-      const normalizedTopIPs =
-        normalizeArray(topIPsData);
-
-      setTopIPs(normalizedTopIPs);
-
-      console.log(
-        "ThreatLens top IPs refreshed:",
-        normalizedTopIPs
-      );
-
-      // ----------------------------------------------------
-      // Recent Alerts
-      // ----------------------------------------------------
-
-      const normalizedAlerts =
-        normalizeArray(recentAlertsData);
-
-      setRecentAlerts(normalizedAlerts);
-
-      console.log(
-        "ThreatLens recent alerts refreshed:",
-        normalizedAlerts
-      );
-
-      // ----------------------------------------------------
-      // Threat Trends
-      // ----------------------------------------------------
-
-      const normalizedTrends =
-        normalizeArray(
-          trendsData,
-          ["trends"]
-        );
-
-      setTrends(normalizedTrends);
-
-      console.log(
-        "ThreatLens threat trends refreshed:",
-        normalizedTrends
-      );
-
-      // ----------------------------------------------------
-      // Timestamp
-      // ----------------------------------------------------
 
       setLastDashboardRefresh(
         new Date().toLocaleTimeString()
-      );
-
-      console.log(
-        "ThreatLens: Dashboard refresh completed successfully."
       );
     } catch (error) {
       console.error(
@@ -254,15 +496,22 @@ function App() {
   // ========================================================
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
     loadDashboard(false).catch(() => {});
-  }, []);
+  }, [isAuthenticated]);
 
   // ========================================================
   // Automatic Dashboard Refresh
   // ========================================================
 
   useEffect(() => {
-    if (!settings.autoRefresh) {
+    if (
+      !isAuthenticated ||
+      !settings.autoRefresh
+    ) {
       return;
     }
 
@@ -283,15 +532,18 @@ function App() {
       }
     }, intervalSeconds * 1000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+    };
   }, [
+    isAuthenticated,
     settings.autoRefresh,
     settings.refreshInterval,
     activePage,
   ]);
 
   // ========================================================
-  // Settings Toggle
+  // Settings
   // ========================================================
 
   function toggleSetting(settingName) {
@@ -301,10 +553,6 @@ function App() {
     }));
   }
 
-  // ========================================================
-  // Settings Select
-  // ========================================================
-
   function updateSetting(settingName, value) {
     setSettings((previous) => ({
       ...previous,
@@ -312,8 +560,24 @@ function App() {
     }));
   }
 
+  function resetSettings() {
+    setSettings(DEFAULT_SETTINGS);
+
+    try {
+      localStorage.setItem(
+        "threatlens_settings",
+        JSON.stringify(DEFAULT_SETTINGS)
+      );
+    } catch (error) {
+      console.error(
+        "ThreatLens: Failed to reset settings:",
+        error
+      );
+    }
+  }
+
   // ========================================================
-  // Open Scan Modal
+  // Scan Modal
   // ========================================================
 
   function openScanModal() {
@@ -322,10 +586,6 @@ function App() {
     setScanError("");
     setScanResult(null);
   }
-
-  // ========================================================
-  // Close Scan Modal
-  // ========================================================
 
   function closeScanModal() {
     if (scanLoading) {
@@ -338,10 +598,6 @@ function App() {
     setScanResult(null);
   }
 
-  // ========================================================
-  // IPv4 Validation
-  // ========================================================
-
   function isValidIPv4(ip) {
     const ipv4Regex =
       /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
@@ -350,7 +606,7 @@ function App() {
   }
 
   // ========================================================
-  // Threat Score Extraction
+  // Threat Score
   // ========================================================
 
   function getThreatScore(result) {
@@ -364,10 +620,8 @@ function App() {
       result.threatScore,
       result.threatlens_score,
       result.threatlensScore,
-
       result?.threatlens?.score,
       result?.correlation?.score,
-
       result?.data?.threat_score,
       result?.data?.score,
     ];
@@ -384,7 +638,7 @@ function App() {
   }
 
   // ========================================================
-  // Severity Extraction
+  // Severity
   // ========================================================
 
   function getThreatSeverity(result, score) {
@@ -398,7 +652,6 @@ function App() {
       result.riskLevel,
       result.threat_level,
       result.threatLevel,
-
       result?.threatlens?.severity,
       result?.correlation?.severity,
       result?.data?.severity,
@@ -434,12 +687,7 @@ function App() {
       return false;
     }
 
-    const sourceLower =
-      String(source).toLowerCase();
-
-    // ------------------------------------------------------
-    // Direct object source
-    // ------------------------------------------------------
+    const sourceLower = String(source).toLowerCase();
 
     if (
       result?.sources &&
@@ -461,10 +709,6 @@ function App() {
       }
     }
 
-    // ------------------------------------------------------
-    // Array based sources
-    // ------------------------------------------------------
-
     if (
       result?.sources &&
       Array.isArray(result.sources)
@@ -482,10 +726,6 @@ function App() {
         );
       });
     }
-
-    // ------------------------------------------------------
-    // Correlation object
-    // ------------------------------------------------------
 
     if (
       result?.correlation &&
@@ -507,11 +747,9 @@ function App() {
       }
     }
 
-    // ------------------------------------------------------
-    // Explicit source names
-    // ------------------------------------------------------
-
-    const sourceText = JSON.stringify(result).toLowerCase();
+    const sourceText = JSON.stringify(
+      result
+    ).toLowerCase();
 
     if (
       sourceLower === "virustotal" &&
@@ -541,14 +779,10 @@ function App() {
   }
 
   // ========================================================
-  // Refresh Everything After Scan
+  // Post Scan Refresh
   // ========================================================
 
   async function refreshEverythingAfterScan() {
-    console.log(
-      "ThreatLens: Starting complete post-scan refresh..."
-    );
-
     try {
       await loadDashboard(true);
 
@@ -570,10 +804,6 @@ function App() {
 
       setHistoryRefreshKey(
         (value) => value + 1
-      );
-
-      console.log(
-        "ThreatLens: Complete post-scan refresh triggered."
       );
     } catch (error) {
       console.error(
@@ -611,18 +841,7 @@ function App() {
       setScanError("");
       setScanResult(null);
 
-      console.log(
-        "ThreatLens: Starting new threat scan:",
-        ip
-      );
-
-      const result =
-        await correlateIP(ip);
-
-      console.log(
-        "ThreatLens correlation result:",
-        result
-      );
+      const result = await correlateIP(ip);
 
       setScanResult({
         ...result,
@@ -691,15 +910,13 @@ function App() {
 
     if (Array.isArray(severity)) {
       severity.forEach((item) => {
-        const severityName =
-          String(
-            item?.severity || ""
-          ).toLowerCase();
+        const severityName = String(
+          item?.severity || ""
+        ).toLowerCase();
 
-        const count =
-          Number(
-            item?.count ?? 0
-          );
+        const count = Number(
+          item?.count ?? 0
+        );
 
         if (!Number.isFinite(count)) {
           return;
@@ -726,44 +943,7 @@ function App() {
             break;
         }
       });
-
-      return result;
     }
-
-    const source =
-      severity || {};
-
-    result.critical =
-      Number(
-        source.critical ??
-          source.Critical ??
-          source.critical_count ??
-          0
-      ) || 0;
-
-    result.high =
-      Number(
-        source.high ??
-          source.High ??
-          source.high_count ??
-          0
-      ) || 0;
-
-    result.medium =
-      Number(
-        source.medium ??
-          source.Medium ??
-          source.medium_count ??
-          0
-      ) || 0;
-
-    result.low =
-      Number(
-        source.low ??
-          source.Low ??
-          source.low_count ??
-          0
-      ) || 0;
 
     return result;
   }, [severity]);
@@ -777,18 +957,16 @@ function App() {
       return [];
     }
 
-    return trends
-      .slice(-7)
-      .map((item, index) => {
-        const value =
-          Number(
-            item?.count ??
-              item?.threats ??
-              item?.detections ??
-              item?.total ??
-              item?.value ??
-              0
-          );
+    return trends.slice(-7).map(
+      (item, index) => {
+        const value = Number(
+          item?.count ??
+            item?.threats ??
+            item?.detections ??
+            item?.total ??
+            item?.value ??
+            0
+        );
 
         const date =
           item?.date ||
@@ -797,18 +975,14 @@ function App() {
           `Day ${index + 1}`;
 
         return {
-          value:
-            Number.isFinite(value)
-              ? value
-              : 0,
+          value: Number.isFinite(value)
+            ? value
+            : 0,
           date,
         };
-      });
+      }
+    );
   }, [trends]);
-
-  // ========================================================
-  // Maximum Chart Value
-  // ========================================================
 
   const maxChartValue = useMemo(() => {
     if (!chartData.length) {
@@ -822,10 +996,6 @@ function App() {
       1
     );
   }, [chartData]);
-
-  // ========================================================
-  // Scan Result
-  // ========================================================
 
   const scanScore =
     getThreatScore(scanResult);
@@ -844,46 +1014,30 @@ function App() {
     setActivePage(page);
 
     if (page === "Dashboard") {
-      loadDashboard(true)
-        .catch(() => {});
+      loadDashboard(true).catch(() => {});
     }
   }
-
-  // ========================================================
-  // TOPBAR SEARCH
-  // ========================================================
 
   function handleSearchClick() {
     openScanModal();
   }
 
-  // ========================================================
-  // TOPBAR NOTIFICATIONS
-  // ========================================================
-
   function handleNotificationClick() {
     handleNavigation("Alerts");
   }
 
-  // ========================================================
-  // TOPBAR PROFILE
-  // ========================================================
-
   function handleProfileClick() {
-    handleNavigation("Settings");
+    setProfileMenuOpen(
+      (previous) => !previous
+    );
   }
-
-  // ========================================================
-  // Severity Label
-  // ========================================================
 
   function formatSeverity(value) {
     if (!value) {
       return "Unknown";
     }
 
-    const text =
-      String(value);
+    const text = String(value);
 
     return (
       text.charAt(0).toUpperCase() +
@@ -892,58 +1046,41 @@ function App() {
   }
 
   // ========================================================
-  // SETTINGS PAGE
+  // Settings Page
   // ========================================================
 
   function renderSettings() {
     return (
       <section className="settings-page">
-
-        {/* HEADER */}
-
         <div className="settings-header">
-
-          <h3>
-            Settings
-          </h3>
+          <h3>Settings</h3>
 
           <p>
             Configure ThreatLens monitoring,
             notifications and system preferences.
           </p>
-
         </div>
 
-        {/* MONITORING */}
-
         <div className="settings-card">
-
           <div className="settings-card-header">
-
-            <h4>
-              Monitoring
-            </h4>
+            <h4>Monitoring</h4>
 
             <p>
-              Configure real-time threat
-              monitoring behaviour.
+              Configure real-time threat monitoring
+              behaviour.
             </p>
-
           </div>
 
           <div className="setting-row">
-
             <div className="setting-info">
-
               <strong>
                 Real-time Monitoring
               </strong>
 
               <p>
-                Continuously monitor incoming
-                threat intelligence events.
+                Continuously monitor incoming threat
+                intelligence events.
               </p>
-
             </div>
 
             <button
@@ -958,16 +1095,16 @@ function App() {
                 )
               }
               type="button"
+              aria-pressed={
+                settings.realtimeMonitoring
+              }
             >
               <span />
             </button>
-
           </div>
 
           <div className="setting-row">
-
             <div className="setting-info">
-
               <strong>
                 Automatic Correlation
               </strong>
@@ -976,7 +1113,6 @@ function App() {
                 Automatically correlate threat
                 intelligence from multiple sources.
               </p>
-
             </div>
 
             <button
@@ -991,16 +1127,16 @@ function App() {
                 )
               }
               type="button"
+              aria-pressed={
+                settings.automaticCorrelation
+              }
             >
               <span />
             </button>
-
           </div>
 
           <div className="setting-row">
-
             <div className="setting-info">
-
               <strong>
                 Automatic Dashboard Refresh
               </strong>
@@ -1009,7 +1145,6 @@ function App() {
                 Refresh dashboard statistics
                 automatically.
               </p>
-
             </div>
 
             <button
@@ -1024,25 +1159,24 @@ function App() {
                 )
               }
               type="button"
+              aria-pressed={
+                settings.autoRefresh
+              }
             >
               <span />
             </button>
-
           </div>
 
           <div className="setting-row">
-
             <div className="setting-info">
-
               <strong>
                 Refresh Interval
               </strong>
 
               <p>
-                Select how frequently the
-                dashboard updates.
+                Select how frequently the dashboard
+                updates.
               </p>
-
             </div>
 
             <select
@@ -1076,40 +1210,28 @@ function App() {
                 Every 5 minutes
               </option>
             </select>
-
           </div>
-
         </div>
 
-        {/* NOTIFICATIONS */}
-
         <div className="settings-card">
-
           <div className="settings-card-header">
-
-            <h4>
-              Notifications
-            </h4>
+            <h4>Notifications</h4>
 
             <p>
               Configure security alert notifications.
             </p>
-
           </div>
 
           <div className="setting-row">
-
             <div className="setting-info">
-
               <strong>
                 Alert Notifications
               </strong>
 
               <p>
-                Receive notifications when High
-                or Critical alerts are generated.
+                Receive notifications when High or
+                Critical alerts are generated.
               </p>
-
             </div>
 
             <button
@@ -1124,25 +1246,24 @@ function App() {
                 )
               }
               type="button"
+              aria-pressed={
+                settings.alertNotifications
+              }
             >
               <span />
             </button>
-
           </div>
 
           <div className="setting-row">
-
             <div className="setting-info">
-
               <strong>
                 Sound Notifications
               </strong>
 
               <p>
-                Play a sound when a new alert
-                is detected.
+                Play a sound when a new alert is
+                detected.
               </p>
-
             </div>
 
             <button
@@ -1157,20 +1278,17 @@ function App() {
                 )
               }
               type="button"
+              aria-pressed={
+                settings.soundNotifications
+              }
             >
               <span />
             </button>
-
           </div>
-
         </div>
 
-        {/* APPEARANCE */}
-
         <div className="settings-card">
-
           <div className="settings-card-header">
-
             <h4>
               Appearance
             </h4>
@@ -1178,13 +1296,10 @@ function App() {
             <p>
               Configure the ThreatLens interface.
             </p>
-
           </div>
 
           <div className="setting-row">
-
             <div className="setting-info">
-
               <strong>
                 Dark Mode
               </strong>
@@ -1193,7 +1308,6 @@ function App() {
                 Use the dark SOC interface for
                 security operations.
               </p>
-
             </div>
 
             <button
@@ -1203,25 +1317,20 @@ function App() {
                   : ""
               }`}
               onClick={() =>
-                toggleSetting(
-                  "darkMode"
-                )
+                toggleSetting("darkMode")
               }
               type="button"
+              aria-pressed={
+                settings.darkMode
+              }
             >
               <span />
             </button>
-
           </div>
-
         </div>
 
-        {/* SYSTEM INFORMATION */}
-
         <div className="settings-card">
-
           <div className="settings-card-header">
-
             <h4>
               System Information
             </h4>
@@ -1229,61 +1338,42 @@ function App() {
             <p>
               ThreatLens platform information.
             </p>
-
           </div>
 
           <div className="settings-info-grid">
-
             <div className="settings-info-item">
-
-              <span>
-                PLATFORM
-              </span>
+              <span>PLATFORM</span>
 
               <strong>
                 ThreatLens SOC
               </strong>
-
             </div>
 
             <div className="settings-info-item">
-
-              <span>
-                ENVIRONMENT
-              </span>
+              <span>ENVIRONMENT</span>
 
               <strong>
                 Development
               </strong>
-
             </div>
 
             <div className="settings-info-item">
-
-              <span>
-                BACKEND
-              </span>
+              <span>BACKEND</span>
 
               <strong>
                 FastAPI
               </strong>
-
             </div>
 
             <div className="settings-info-item">
-
-              <span>
-                DATABASE
-              </span>
+              <span>DATABASE</span>
 
               <strong>
                 PostgreSQL
               </strong>
-
             </div>
 
             <div className="settings-info-item">
-
               <span>
                 INTELLIGENCE SOURCES
               </span>
@@ -1291,11 +1381,9 @@ function App() {
               <strong>
                 VirusTotal + AbuseIPDB + OTX
               </strong>
-
             </div>
 
             <div className="settings-info-item">
-
               <span>
                 SYSTEM STATUS
               </span>
@@ -1303,19 +1391,338 @@ function App() {
               <strong>
                 Operational
               </strong>
-
             </div>
-
           </div>
-
         </div>
 
+        <div className="settings-card settings-reset-card">
+          <div className="settings-card-header">
+            <h4>Reset Settings</h4>
+
+            <p>
+              Restore all ThreatLens settings to their
+              default values.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="settings-reset-button"
+            onClick={resetSettings}
+          >
+            Reset to Defaults
+          </button>
+        </div>
       </section>
     );
   }
 
   // ========================================================
-  // RENDER
+  // Authentication Loading
+  // ========================================================
+
+  if (authLoading) {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <div className="auth-logo">
+            T
+          </div>
+
+          <h1>ThreatLens</h1>
+
+          <p>
+            Verifying authentication...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ========================================================
+  // Login
+  // ========================================================
+
+  if (!isAuthenticated && authMode === "login") {
+    return (
+      <div className="auth-screen">
+        <form
+          className="auth-card"
+          onSubmit={handleLogin}
+        >
+          <div className="auth-brand">
+            <div className="auth-logo">
+              T
+            </div>
+
+            <div className="auth-brand-text">
+              <h1>ThreatLens</h1>
+
+              <span>
+                Security Operations Platform
+              </span>
+            </div>
+          </div>
+
+          <div className="auth-heading">
+            <h2>Welcome back</h2>
+          </div>
+
+          <div className="auth-field">
+            <label htmlFor="login-email">
+              Email
+            </label>
+
+            <input
+              id="login-email"
+              type="email"
+              value={loginEmail}
+              onChange={(event) => {
+                setLoginEmail(
+                  event.target.value
+                );
+
+                setLoginError("");
+              }}
+              autoComplete="email"
+              placeholder="Enter your email"
+              disabled={loginLoading}
+            />
+          </div>
+
+          <div className="auth-field">
+            <label htmlFor="login-password">
+              Password
+            </label>
+
+            <input
+              id="login-password"
+              type="password"
+              value={loginPassword}
+              onChange={(event) => {
+                setLoginPassword(
+                  event.target.value
+                );
+
+                setLoginError("");
+              }}
+              autoComplete="current-password"
+              placeholder="Enter your password"
+              disabled={loginLoading}
+            />
+          </div>
+
+          {registerSuccess && (
+            <div className="auth-success">
+              {registerSuccess}
+            </div>
+          )}
+
+          {loginError && (
+            <div className="auth-error">
+              {loginError}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            className="primary-button auth-submit"
+            disabled={loginLoading}
+          >
+            {loginLoading
+              ? "Signing in..."
+              : "Sign In"}
+          </button>
+
+          <div className="auth-switch">
+            <span>
+              Do not have an account?
+            </span>
+
+            <button
+              type="button"
+              className="auth-link"
+              onClick={() => {
+                setAuthMode("register");
+                setLoginError("");
+                setRegisterError("");
+                setRegisterSuccess("");
+              }}
+              disabled={loginLoading}
+            >
+              Sign Up
+            </button>
+          </div>
+        </form>
+      </div>
+    );
+  }
+
+  // ========================================================
+  // Register
+  // ========================================================
+
+  if (!isAuthenticated && authMode === "register") {
+    return (
+      <div className="auth-screen">
+        <form
+          className="auth-card register-card"
+          onSubmit={handleRegister}
+        >
+          <div className="auth-brand">
+            <div className="auth-logo">
+              T
+            </div>
+
+            <div className="auth-brand-text">
+              <h1>ThreatLens</h1>
+
+              <span>
+                Security Operations Platform
+              </span>
+            </div>
+          </div>
+
+          <div className="auth-heading">
+            <h2>
+              Create your account
+            </h2>
+
+            <p>
+              Create a secure account to access
+              ThreatLens.
+            </p>
+          </div>
+
+          <div className="auth-field">
+            <label htmlFor="register-username">
+              Username
+            </label>
+
+            <input
+              id="register-username"
+              type="text"
+              value={registerUsername}
+              onChange={(event) => {
+                setRegisterUsername(
+                  event.target.value
+                );
+
+                setRegisterError("");
+              }}
+              autoComplete="username"
+              placeholder="Create username"
+              disabled={registerLoading}
+            />
+          </div>
+
+          <div className="auth-field">
+            <label htmlFor="register-email">
+              Email
+            </label>
+
+            <input
+              id="register-email"
+              type="email"
+              value={registerEmail}
+              onChange={(event) => {
+                setRegisterEmail(
+                  event.target.value
+                );
+
+                setRegisterError("");
+              }}
+              autoComplete="email"
+              placeholder="Enter email address"
+              disabled={registerLoading}
+            />
+          </div>
+
+          <div className="auth-field">
+            <label htmlFor="register-password">
+              Password
+            </label>
+
+            <input
+              id="register-password"
+              type="password"
+              value={registerPassword}
+              onChange={(event) => {
+                setRegisterPassword(
+                  event.target.value
+                );
+
+                setRegisterError("");
+              }}
+              autoComplete="new-password"
+              placeholder="Create password"
+              disabled={registerLoading}
+            />
+          </div>
+
+          <div className="auth-field">
+            <label htmlFor="register-confirm-password">
+              Confirm Password
+            </label>
+
+            <input
+              id="register-confirm-password"
+              type="password"
+              value={registerConfirmPassword}
+              onChange={(event) => {
+                setRegisterConfirmPassword(
+                  event.target.value
+                );
+
+                setRegisterError("");
+              }}
+              autoComplete="new-password"
+              placeholder="Confirm password"
+              disabled={registerLoading}
+            />
+          </div>
+
+          {registerError && (
+            <div className="auth-error">
+              {registerError}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            className="primary-button auth-submit"
+            disabled={registerLoading}
+          >
+            {registerLoading
+              ? "Creating account..."
+              : "Create Account"}
+          </button>
+
+          <div className="auth-switch">
+            <span>
+              Already have an account?
+            </span>
+
+            <button
+              type="button"
+              className="auth-link"
+              onClick={() => {
+                setAuthMode("login");
+                setRegisterError("");
+                setRegisterSuccess("");
+              }}
+              disabled={registerLoading}
+            >
+              Sign In
+            </button>
+          </div>
+        </form>
+      </div>
+    );
+  }
+
+  // ========================================================
+  // MAIN APPLICATION
   // ========================================================
 
   return (
@@ -1326,37 +1733,23 @@ function App() {
       ================================================== */}
 
       <aside className="sidebar">
-
-        {/* LOGO */}
-
         <div className="logo">
-
           <div className="logo-icon">
             T
           </div>
 
           <div>
-
-            <h1>
-              ThreatLens
-            </h1>
+            <h1>ThreatLens</h1>
 
             <span>
               SOC Platform
             </span>
-
           </div>
-
         </div>
-
-        {/* NAVIGATION */}
 
         <nav className="navigation">
 
-          {/* MAIN */}
-
           <div className="nav-section">
-
             <span className="nav-title">
               MAIN
             </span>
@@ -1368,9 +1761,7 @@ function App() {
                   : ""
               }`}
               onClick={() =>
-                handleNavigation(
-                  "Dashboard"
-                )
+                handleNavigation("Dashboard")
               }
               type="button"
             >
@@ -1403,9 +1794,7 @@ function App() {
                   : ""
               }`}
               onClick={() =>
-                handleNavigation(
-                  "Alerts"
-                )
+                handleNavigation("Alerts")
               }
               type="button"
             >
@@ -1420,22 +1809,16 @@ function App() {
                   : ""
               }`}
               onClick={() =>
-                handleNavigation(
-                  "Incidents"
-                )
+                handleNavigation("Incidents")
               }
               type="button"
             >
               <span>◇</span>
               Incidents
             </button>
-
           </div>
 
-          {/* ANALYSIS */}
-
           <div className="nav-section">
-
             <span className="nav-title">
               ANALYSIS
             </span>
@@ -1459,7 +1842,8 @@ function App() {
 
             <button
               className={`nav-item ${
-                activePage === "Threat Scores"
+                activePage ===
+                "Threat Scores"
                   ? "active"
                   : ""
               }`}
@@ -1491,13 +1875,9 @@ function App() {
               <span>◌</span>
               Intelligence History
             </button>
-
           </div>
 
-          {/* SYSTEM */}
-
           <div className="nav-section">
-
             <span className="nav-title">
               SYSTEM
             </span>
@@ -1509,30 +1889,21 @@ function App() {
                   : ""
               }`}
               onClick={() =>
-                handleNavigation(
-                  "Settings"
-                )
+                handleNavigation("Settings")
               }
               type="button"
             >
               <span>⚙</span>
               Settings
             </button>
-
           </div>
-
         </nav>
 
-        {/* SIDEBAR FOOTER */}
-
         <div className="sidebar-footer">
-
           <div className="system-status">
-
             <div className="status-dot" />
 
             <div>
-
               <strong>
                 System Online
               </strong>
@@ -1540,13 +1911,9 @@ function App() {
               <small>
                 All services operational
               </small>
-
             </div>
-
           </div>
-
         </div>
-
       </aside>
 
       {/* ==================================================
@@ -1560,11 +1927,7 @@ function App() {
         ================================================== */}
 
         <header className="topbar">
-
-          {/* TITLE */}
-
           <div className="topbar-title">
-
             <h2>
               Security Operations Center
             </h2>
@@ -1572,14 +1935,9 @@ function App() {
             <p>
               Real-time threat intelligence overview
             </p>
-
           </div>
 
-          {/* ACTIONS */}
-
           <div className="topbar-actions">
-
-            {/* SEARCH */}
 
             <button
               className="icon-button"
@@ -1590,68 +1948,102 @@ function App() {
               ⌕
             </button>
 
-            {/* NOTIFICATIONS */}
-
             <button
               className="icon-button notification-button"
               title="View Alerts"
-              onClick={handleNotificationClick}
+              onClick={
+                handleNotificationClick
+              }
               type="button"
             >
-
               🔔
 
               {recentAlerts.length > 0 && (
-
                 <span className="notification-badge">
-
                   {recentAlerts.length > 9
                     ? "9+"
                     : recentAlerts.length}
-
                 </span>
-
               )}
-
             </button>
-
-            {/* SEPARATOR */}
 
             <div className="topbar-separator" />
 
-            {/* PROFILE */}
+            <div className="profile-menu-wrapper">
+              <button
+                className="profile profile-button"
+                title="Open account menu"
+                onClick={handleProfileClick}
+                type="button"
+                aria-expanded={
+                  profileMenuOpen
+                }
+              >
+                <div className="avatar">
+                  {currentUser?.username
+                    ? currentUser.username
+                        .charAt(0)
+                        .toUpperCase()
+                    : "A"}
+                </div>
 
-            <button
-              className="profile profile-button"
-              title="Open Settings"
-              onClick={handleProfileClick}
-              type="button"
-            >
+                <div className="profile-details">
+                  <strong>
+                    {currentUser?.username ||
+                      "Administrator"}
+                  </strong>
 
-              <div className="avatar">
-                A
-              </div>
+                  <small>
+                    {currentUser?.role ||
+                      "Admin"}
+                  </small>
+                </div>
 
-              <div className="profile-details">
+                <span className="profile-arrow">
+                  ▾
+                </span>
+              </button>
 
-                <strong>
-                  Administrator
-                </strong>
+              {profileMenuOpen && (
+                <div className="profile-dropdown">
 
-                <small>
-                  Admin
-                </small>
+                  <div className="profile-dropdown-header">
+                    <strong>
+                      {currentUser?.username ||
+                        "Administrator"}
+                    </strong>
 
-              </div>
+                    <small>
+                      {currentUser?.role ||
+                        "Admin"}
+                    </small>
+                  </div>
 
-              <span className="profile-arrow">
-                ▾
-              </span>
+                  <button
+                    type="button"
+                    className="profile-dropdown-item"
+                    onClick={() => {
+                      setProfileMenuOpen(false);
 
-            </button>
+                      handleNavigation(
+                        "Settings"
+                      );
+                    }}
+                  >
+                    ⚙ Settings
+                  </button>
 
+                  <button
+                    type="button"
+                    className="profile-dropdown-item logout-item"
+                    onClick={handleLogout}
+                  >
+                    ↪ Logout
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-
         </header>
 
         {/* ==================================================
@@ -1659,23 +2051,16 @@ function App() {
         ================================================== */}
 
         {activePage === "Dashboard" && (
-
           <section className="dashboard">
 
             <div className="page-heading">
-
               <div>
-
-                <h3>
-                  Dashboard
-                </h3>
+                <h3>Dashboard</h3>
 
                 <p>
-                  Monitor your threat
-                  landscape and security
-                  posture.
+                  Monitor your threat landscape
+                  and security posture.
                 </p>
-
               </div>
 
               <div className="heading-actions">
@@ -1683,9 +2068,9 @@ function App() {
                 <button
                   className="secondary-button"
                   onClick={() =>
-                    loadDashboard(
-                      true
-                    ).catch(() => {})
+                    loadDashboard(true).catch(
+                      () => {}
+                    )
                   }
                   disabled={refreshing}
                   type="button"
@@ -1703,57 +2088,40 @@ function App() {
                 >
                   + New Threat Scan
                 </button>
-
               </div>
-
             </div>
 
             {lastDashboardRefresh && (
-
-              <div
-                style={{
-                  fontSize: "12px",
-                  opacity: 0.6,
-                  marginBottom: "12px",
-                }}
-              >
+              <div className="dashboard-last-refresh">
                 Last updated:{" "}
                 {lastDashboardRefresh}
               </div>
-
             )}
 
             {dashboardError && (
-
               <div className="dashboard-error">
                 {dashboardError}
               </div>
-
             )}
 
             {loading && !overview ? (
-
               <div className="panel">
-
                 <div className="chart-message">
                   Loading ThreatLens
                   dashboard...
                 </div>
-
               </div>
-
             ) : (
-
               <>
 
-                {/* STAT CARDS */}
+                {/* ==================================================
+                    STATISTICS
+                ================================================== */}
 
                 <div className="stats-grid">
 
                   <div className="stat-card">
-
                     <div className="stat-header">
-
                       <span>
                         Total Scans
                       </span>
@@ -1761,7 +2129,6 @@ function App() {
                       <span className="stat-icon">
                         ⌁
                       </span>
-
                     </div>
 
                     <strong>
@@ -1772,13 +2139,10 @@ function App() {
                       Threat intelligence
                       scans
                     </div>
-
                   </div>
 
                   <div className="stat-card">
-
                     <div className="stat-header">
-
                       <span>
                         Unique IPs
                       </span>
@@ -1786,7 +2150,6 @@ function App() {
                       <span className="stat-icon">
                         ◎
                       </span>
-
                     </div>
 
                     <strong>
@@ -1797,13 +2160,10 @@ function App() {
                       Unique addresses
                       analyzed
                     </div>
-
                   </div>
 
                   <div className="stat-card critical-card">
-
                     <div className="stat-header">
-
                       <span>
                         Critical Threats
                       </span>
@@ -1811,7 +2171,6 @@ function App() {
                       <span className="stat-icon">
                         ⚠
                       </span>
-
                     </div>
 
                     <strong>
@@ -1822,13 +2181,10 @@ function App() {
                       Requires immediate
                       attention
                     </div>
-
                   </div>
 
                   <div className="stat-card">
-
                     <div className="stat-header">
-
                       <span>
                         High Threats
                       </span>
@@ -1836,7 +2192,6 @@ function App() {
                       <span className="stat-icon">
                         !
                       </span>
-
                     </div>
 
                     <strong>
@@ -1847,21 +2202,20 @@ function App() {
                       High severity
                       detections
                     </div>
-
                   </div>
 
                 </div>
 
-                {/* THREAT ACTIVITY + SEVERITY */}
+                {/* ==================================================
+                    CHART + SEVERITY
+                ================================================== */}
 
                 <div className="dashboard-grid">
 
                   <div className="panel">
 
                     <div className="panel-header">
-
                       <div>
-
                         <h4>
                           Threat Activity
                         </h4>
@@ -1870,22 +2224,18 @@ function App() {
                           Threat detections
                           over time
                         </p>
-
                       </div>
-
                     </div>
 
                     <div className="threat-chart">
 
-                      {chartData.length === 0 ? (
-
+                      {chartData.length ===
+                      0 ? (
                         <div className="chart-message">
                           No threat activity
                           data available.
                         </div>
-
                       ) : (
-
                         <div className="chart-bars">
 
                           {chartData.map(
@@ -1896,22 +2246,20 @@ function App() {
 
                               const height =
                                 Math.max(
-                                  (
-                                    item.value /
-                                    maxChartValue
-                                  ) * 80,
-                                  item.value > 0
+                                  (item.value /
+                                    maxChartValue) *
+                                    80,
+                                  item.value >
+                                    0
                                     ? 4
                                     : 0
                                 );
 
                               return (
-
                                 <div
                                   className="chart-column"
                                   key={`${item.date}-${index}`}
                                 >
-
                                   <div className="chart-value">
                                     {item.value}
                                   </div>
@@ -1927,27 +2275,21 @@ function App() {
                                   <div className="chart-date">
                                     {item.date}
                                   </div>
-
                                 </div>
-
                               );
                             }
                           )}
 
                         </div>
-
                       )}
 
                     </div>
-
                   </div>
 
                   <div className="panel">
 
                     <div className="panel-header">
-
                       <div>
-
                         <h4>
                           Severity Distribution
                         </h4>
@@ -1956,72 +2298,70 @@ function App() {
                           Current threat
                           levels
                         </p>
-
                       </div>
-
                     </div>
 
                     <div className="severity-list">
 
                       <div className="severity-item">
-
                         <div>
                           <span className="severity-dot critical" />
                           Critical
                         </div>
 
                         <strong>
-                          {severityStats.critical}
+                          {
+                            severityStats.critical
+                          }
                         </strong>
-
                       </div>
 
                       <div className="severity-item">
-
                         <div>
                           <span className="severity-dot high" />
                           High
                         </div>
 
                         <strong>
-                          {severityStats.high}
+                          {
+                            severityStats.high
+                          }
                         </strong>
-
                       </div>
 
                       <div className="severity-item">
-
                         <div>
                           <span className="severity-dot medium" />
                           Medium
                         </div>
 
                         <strong>
-                          {severityStats.medium}
+                          {
+                            severityStats.medium
+                          }
                         </strong>
-
                       </div>
 
                       <div className="severity-item">
-
                         <div>
                           <span className="severity-dot low" />
                           Low
                         </div>
 
                         <strong>
-                          {severityStats.low}
+                          {
+                            severityStats.low
+                          }
                         </strong>
-
                       </div>
 
                     </div>
-
                   </div>
-
                 </div>
 
-                {/* TOP IPS + ALERTS */}
+                {/* ==================================================
+                    TOP IPS + ALERTS
+                ================================================== */}
 
                 <div className="dashboard-grid">
 
@@ -2030,7 +2370,6 @@ function App() {
                     <div className="panel-header">
 
                       <div>
-
                         <h4>
                           Top Threat IPs
                         </h4>
@@ -2039,7 +2378,6 @@ function App() {
                           Most frequently
                           detected addresses
                         </p>
-
                       </div>
 
                       <button
@@ -2053,20 +2391,17 @@ function App() {
                       >
                         View all
                       </button>
-
                     </div>
 
                     <div className="ip-list">
 
-                      {topIPs.length === 0 ? (
-
+                      {topIPs.length ===
+                      0 ? (
                         <div className="chart-message">
                           No threat IPs
                           available.
                         </div>
-
                       ) : (
-
                         topIPs
                           .slice(0, 5)
                           .map(
@@ -2094,31 +2429,31 @@ function App() {
                                 "low";
 
                               if (
-                                score >= 80
+                                score >=
+                                80
                               ) {
                                 risk =
                                   "critical";
                               } else if (
-                                score >= 60
+                                score >=
+                                60
                               ) {
                                 risk =
                                   "high";
                               } else if (
-                                score >= 30
+                                score >=
+                                30
                               ) {
                                 risk =
                                   "medium";
                               }
 
                               return (
-
                                 <div
                                   className="ip-row"
                                   key={`${ip}-${index}`}
                                 >
-
                                   <div>
-
                                     <strong>
                                       {ip}
                                     </strong>
@@ -2126,9 +2461,10 @@ function App() {
                                     <small>
                                       Threat
                                       score:{" "}
-                                      {score}
+                                      {
+                                        score
+                                      }
                                     </small>
-
                                   </div>
 
                                   <span
@@ -2138,17 +2474,13 @@ function App() {
                                       risk
                                     )}
                                   </span>
-
                                 </div>
-
                               );
                             }
                           )
-
                       )}
 
                     </div>
-
                   </div>
 
                   <div className="panel">
@@ -2156,7 +2488,6 @@ function App() {
                     <div className="panel-header">
 
                       <div>
-
                         <h4>
                           Recent Alerts
                         </h4>
@@ -2165,7 +2496,6 @@ function App() {
                           Latest security
                           detections
                         </p>
-
                       </div>
 
                       <button
@@ -2179,19 +2509,16 @@ function App() {
                       >
                         View all
                       </button>
-
                     </div>
 
                     <div className="alert-list">
 
-                      {recentAlerts.length === 0 ? (
-
+                      {recentAlerts.length ===
+                      0 ? (
                         <div className="chart-message">
                           No recent alerts.
                         </div>
-
                       ) : (
-
                         recentAlerts
                           .slice(0, 5)
                           .map(
@@ -2230,7 +2557,6 @@ function App() {
                                 )} threat detected`;
 
                               return (
-
                                 <div
                                   className="alert-row"
                                   key={
@@ -2238,7 +2564,6 @@ function App() {
                                     `${ip}-${alert?.created_at || index}`
                                   }
                                 >
-
                                   <div
                                     className={`alert-icon ${alertSeverity}`}
                                   >
@@ -2246,7 +2571,6 @@ function App() {
                                   </div>
 
                                   <div>
-
                                     <strong>
                                       {title}
                                     </strong>
@@ -2254,31 +2578,24 @@ function App() {
                                     <small>
                                       {ip} • Threat
                                       score:{" "}
-                                      {score}
+                                      {
+                                        score
+                                      }
                                     </small>
-
                                   </div>
-
                                 </div>
-
                               );
                             }
                           )
-
                       )}
 
                     </div>
-
                   </div>
-
                 </div>
 
               </>
-
             )}
-
           </section>
-
         )}
 
         {/* ==================================================
@@ -2287,11 +2604,9 @@ function App() {
 
         {activePage ===
           "Threat Intelligence" && (
-
           <ThreatIntelligence
             key={threatIntelRefreshKey}
           />
-
         )}
 
         {/* ==================================================
@@ -2300,11 +2615,9 @@ function App() {
 
         {activePage ===
           "Intelligence History" && (
-
           <IntelligenceHistory
             key={historyRefreshKey}
           />
-
         )}
 
         {/* ==================================================
@@ -2313,12 +2626,12 @@ function App() {
 
         {activePage ===
           "Threat Scores" && (
-
           <ThreatScores
             key={threatScoresRefreshKey}
-            refreshKey={threatScoresRefreshKey}
+            refreshKey={
+              threatScoresRefreshKey
+            }
           />
-
         )}
 
         {/* ==================================================
@@ -2326,12 +2639,12 @@ function App() {
         ================================================== */}
 
         {activePage === "Alerts" && (
-
           <Alerts
             key={alertsRefreshKey}
-            refreshKey={alertsRefreshKey}
+            refreshKey={
+              alertsRefreshKey
+            }
           />
-
         )}
 
         {/* ==================================================
@@ -2339,12 +2652,12 @@ function App() {
         ================================================== */}
 
         {activePage === "Incidents" && (
-
           <Incidents
             key={incidentsRefreshKey}
-            refreshKey={incidentsRefreshKey}
+            refreshKey={
+              incidentsRefreshKey
+            }
           />
-
         )}
 
         {/* ==================================================
@@ -2352,9 +2665,7 @@ function App() {
         ================================================== */}
 
         {activePage === "Correlation" && (
-
           <Correlation />
-
         )}
 
         {/* ==================================================
@@ -2367,33 +2678,26 @@ function App() {
       </main>
 
       {/* ==================================================
-          DASHBOARD SCAN MODAL
+          SCAN MODAL
       ================================================== */}
 
       {showScanModal && (
-
         <div
           className="modal-overlay"
           onMouseDown={(event) => {
-
             if (
               event.target ===
               event.currentTarget
             ) {
               closeScanModal();
             }
-
           }}
         >
-
           <div className="scan-modal">
-
-            {/* MODAL HEADER */}
 
             <div className="scan-modal-header">
 
               <div>
-
                 <span className="modal-label">
                   THREAT INTELLIGENCE
                 </span>
@@ -2403,11 +2707,10 @@ function App() {
                 </h3>
 
                 <p>
-                  Analyze an IP address
-                  using multiple threat
-                  intelligence sources.
+                  Analyze an IP address using
+                  multiple threat intelligence
+                  sources.
                 </p>
-
               </div>
 
               <button
@@ -2419,21 +2722,16 @@ function App() {
               >
                 ×
               </button>
-
             </div>
-
-            {/* ==================================================
-                FORM
-            ================================================== */}
 
             {!scanLoading &&
               !scanResult && (
-
                 <form
                   className="scan-form"
-                  onSubmit={handleThreatScan}
+                  onSubmit={
+                    handleThreatScan
+                  }
                 >
-
                   <label htmlFor="scan-ip">
                     IP Address
                   </label>
@@ -2443,13 +2741,11 @@ function App() {
                     type="text"
                     value={scanIP}
                     onChange={(event) => {
-
                       setScanIP(
                         event.target.value
                       );
 
                       setScanError("");
-
                     }}
                     placeholder="8.8.8.8"
                     autoComplete="off"
@@ -2457,18 +2753,15 @@ function App() {
                   />
 
                   <span className="input-hint">
-                    Enter a public IPv4
-                    address for threat
-                    intelligence
+                    Enter a public IPv4 address
+                    for threat intelligence
                     correlation.
                   </span>
 
                   {scanError && (
-
                     <div className="scan-error">
                       {scanError}
                     </div>
-
                   )}
 
                   <button
@@ -2477,51 +2770,32 @@ function App() {
                   >
                     Analyze IP
                   </button>
-
                 </form>
-
               )}
 
-            {/* ==================================================
-                PROGRESS
-            ================================================== */}
-
             {scanLoading && (
-
               <div className="scan-progress">
-
                 <div className="spinner" />
 
                 <strong>
-                  Running Correlation
-                  Engine...
+                  Running Correlation Engine...
                 </strong>
 
                 <span>
                   Querying VirusTotal,
-                  AbuseIPDB and
-                  AlienVault OTX.
+                  AbuseIPDB and AlienVault
+                  OTX.
                 </span>
-
               </div>
-
             )}
-
-            {/* ==================================================
-                RESULTS
-            ================================================== */}
 
             {!scanLoading &&
               scanResult && (
-
                 <div className="scan-results">
-
-                  {/* SCORE */}
 
                   <div className="score-card">
 
                     <div>
-
                       <span>
                         THREATLENS SCORE
                       </span>
@@ -2529,7 +2803,6 @@ function App() {
                       <strong>
                         {scanScore}
                       </strong>
-
                     </div>
 
                     <span
@@ -2542,10 +2815,7 @@ function App() {
                         scanSeverity
                       )}
                     </span>
-
                   </div>
-
-                  {/* IP */}
 
                   <div className="result-ip">
 
@@ -2557,14 +2827,9 @@ function App() {
                       {scanResult?.analyzed_ip ||
                         scanIP}
                     </strong>
-
                   </div>
 
-                  {/* SOURCES */}
-
                   <div className="source-grid">
-
-                    {/* VIRUSTOTAL */}
 
                     <div className="source-card">
 
@@ -2573,7 +2838,6 @@ function App() {
                       </div>
 
                       <div>
-
                         <strong>
                           VirusTotal
                         </strong>
@@ -2581,7 +2845,6 @@ function App() {
                         <small>
                           IP reputation
                         </small>
-
                       </div>
 
                       <span
@@ -2601,10 +2864,7 @@ function App() {
                           ? "Success"
                           : "Unavailable"}
                       </span>
-
                     </div>
-
-                    {/* ABUSEIPDB */}
 
                     <div className="source-card">
 
@@ -2613,7 +2873,6 @@ function App() {
                       </div>
 
                       <div>
-
                         <strong>
                           AbuseIPDB
                         </strong>
@@ -2621,7 +2880,6 @@ function App() {
                         <small>
                           Abuse reputation
                         </small>
-
                       </div>
 
                       <span
@@ -2641,10 +2899,7 @@ function App() {
                           ? "Success"
                           : "Unavailable"}
                       </span>
-
                     </div>
-
-                    {/* OTX */}
 
                     <div className="source-card">
 
@@ -2653,7 +2908,6 @@ function App() {
                       </div>
 
                       <div>
-
                         <strong>
                           AlienVault OTX
                         </strong>
@@ -2661,7 +2915,6 @@ function App() {
                         <small>
                           Threat intelligence
                         </small>
-
                       </div>
 
                       <span
@@ -2681,22 +2934,17 @@ function App() {
                           ? "Success"
                           : "Unavailable"}
                       </span>
-
                     </div>
 
                   </div>
-
-                  {/* ACTIONS */}
 
                   <div className="result-actions">
 
                     <button
                       className="secondary-button"
                       onClick={() => {
-
                         setScanResult(null);
                         setScanError("");
-
                       }}
                       type="button"
                     >
@@ -2705,22 +2953,20 @@ function App() {
 
                     <button
                       className="primary-button"
-                      onClick={closeScanModal}
+                      onClick={
+                        closeScanModal
+                      }
                       type="button"
                     >
                       Done
                     </button>
 
                   </div>
-
                 </div>
-
               )}
 
           </div>
-
         </div>
-
       )}
 
     </div>

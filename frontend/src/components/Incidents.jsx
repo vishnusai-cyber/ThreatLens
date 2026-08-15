@@ -1,16 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   getIncidents,
+  getIncidentStats,
+  getIncident,
+  getIncidentIntelligence,
   createIncident,
   updateIncident,
   deleteIncident,
-  getIncidentStats,
-  getIncidentIntelligence,
-  getIncidentScore,
 } from "../api";
-
-import "../index.css";
 
 // ==========================================================
 // ThreatLens - Incidents
@@ -22,63 +20,65 @@ function Incidents({ refreshKey = 0 }) {
   // ========================================================
 
   const [incidents, setIncidents] = useState([]);
-
-  const [stats, setStats] = useState({
-    total: 0,
-    open: 0,
-    investigating: 0,
-    resolved: 0,
-    critical: 0,
-    high: 0,
-    medium: 0,
-    low: 0,
-  });
+  const [stats, setStats] = useState(null);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [creating, setCreating] = useState(false);
 
   const [error, setError] = useState("");
 
-  const [selectedIncident, setSelectedIncident] =
-    useState(null);
-
-  const [intelligence, setIntelligence] = useState([]);
-
-  const [incidentScore, setIncidentScore] =
-    useState(null);
-
-  const [loadingIntelligence, setLoadingIntelligence] =
-    useState(false);
-
-  const [loadingScore, setLoadingScore] =
-    useState(false);
-
-  const [scoreError, setScoreError] =
-    useState("");
-
   // ========================================================
-  // Create Form
+  // Create Incident Modal
   // ========================================================
 
-  const [form, setForm] = useState({
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState("");
+
+  const [newIncident, setNewIncident] = useState({
     title: "",
     description: "",
-    severity: "medium",
-    status: "open",
+    severity: "Medium",
     ip_address: "",
   });
+
+  // ========================================================
+  // Selected Incident
+  // ========================================================
+
+  const [selectedIncident, setSelectedIncident] = useState(null);
+  const [selectedLoading, setSelectedLoading] = useState(false);
+  const [selectedError, setSelectedError] = useState("");
+
+  const [attachedIntelligence, setAttachedIntelligence] = useState([]);
+  const [intelligenceLoading, setIntelligenceLoading] =
+    useState(false);
+
+  // ========================================================
+  // Update / Delete
+  // ========================================================
+
+  const [updating, setUpdating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // ========================================================
+  // Search / Filter
+  // ========================================================
+
+  const [searchTerm, setSearchTerm] = useState("");
+  const [severityFilter, setSeverityFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   // ========================================================
   // Normalize Array
   // ========================================================
 
-  function normalizeArray(data, extraKeys = []) {
-    if (Array.isArray(data)) {
-      return data;
+  function normalizeArray(response, extraKeys = []) {
+    if (Array.isArray(response)) {
+      return response;
     }
 
-    if (!data || typeof data !== "object") {
+    if (!response || typeof response !== "object") {
       return [];
     }
 
@@ -87,13 +87,12 @@ function Incidents({ refreshKey = 0 }) {
       "items",
       "results",
       "incidents",
-      "intelligence",
       ...extraKeys,
     ];
 
     for (const key of possibleKeys) {
-      if (Array.isArray(data[key])) {
-        return data[key];
+      if (Array.isArray(response[key])) {
+        return response[key];
       }
     }
 
@@ -101,262 +100,10 @@ function Incidents({ refreshKey = 0 }) {
   }
 
   // ========================================================
-  // Safe Number
-  // ========================================================
-
-  function safeNumber(value) {
-    const number = Number(value);
-
-    return Number.isFinite(number) ? number : 0;
-  }
-
-  // ========================================================
-  // Normalize Incident ID
-  //
-  // IMPORTANT:
-  // FastAPI expects incident_id to be an INTEGER.
-  // ========================================================
-
-  function normalizeIncidentId(value) {
-    if (
-      value === null ||
-      value === undefined ||
-      value === ""
-    ) {
-      return null;
-    }
-
-    const numericId = Number(value);
-
-    if (
-      !Number.isInteger(numericId) ||
-      numericId <= 0
-    ) {
-      return null;
-    }
-
-    return numericId;
-  }
-
-  // ========================================================
-  // Normalize Severity
-  // ========================================================
-
-  function normalizeSeverity(value) {
-    const severity = String(value || "medium")
-      .trim()
-      .toLowerCase();
-
-    if (
-      [
-        "critical",
-        "high",
-        "medium",
-        "low",
-      ].includes(severity)
-    ) {
-      return severity;
-    }
-
-    return "medium";
-  }
-
-  // ========================================================
-  // Normalize Status
-  // ========================================================
-
-  function normalizeStatus(value) {
-    const status = String(value || "open")
-      .trim()
-      .toLowerCase();
-
-    if (
-      [
-        "open",
-        "investigating",
-        "resolved",
-      ].includes(status)
-    ) {
-      return status;
-    }
-
-    return "open";
-  }
-
-  // ========================================================
-  // Normalize Incident
-  // ========================================================
-
-  function normalizeIncident(incident) {
-    if (
-      !incident ||
-      typeof incident !== "object"
-    ) {
-      return null;
-    }
-
-    const id = normalizeIncidentId(
-      incident.id
-    );
-
-    if (id === null) {
-      console.warn(
-        "ThreatLens: Ignoring incident with invalid ID:",
-        incident
-      );
-
-      return null;
-    }
-
-    return {
-      ...incident,
-
-      id,
-
-      title:
-        incident.title
-          ?.toString()
-          .trim() ||
-        "Untitled Incident",
-
-      description:
-        incident.description
-          ?.toString()
-          .trim() || "",
-
-      ip_address:
-        incident.ip_address
-          ?.toString()
-          .trim() || "",
-
-      severity:
-        normalizeSeverity(
-          incident.severity
-        ),
-
-      status:
-        normalizeStatus(
-          incident.status
-        ),
-    };
-  }
-
-  // ========================================================
   // Load Incidents
   // ========================================================
 
-  async function loadIncidents() {
-    console.log(
-      "ThreatLens Incidents: Loading incidents..."
-    );
-
-    const data = await getIncidents(
-      0,
-      100
-    );
-
-    console.log(
-      "ThreatLens Incidents: API response:",
-      data
-    );
-
-    const normalized =
-      normalizeArray(data)
-        .map(normalizeIncident)
-        .filter(Boolean);
-
-    setIncidents(normalized);
-
-    console.log(
-      "ThreatLens Incidents: Normalized incidents:",
-      normalized
-    );
-
-    return normalized;
-  }
-
-  // ========================================================
-  // Load Statistics
-  // ========================================================
-
-  async function loadStats() {
-    console.log(
-      "ThreatLens Incidents: Loading statistics..."
-    );
-
-    const data =
-      await getIncidentStats();
-
-    console.log(
-      "ThreatLens Incidents: Statistics response:",
-      data
-    );
-
-    const source =
-      data?.data ||
-      data?.statistics ||
-      data ||
-      {};
-
-    const normalizedStats = {
-      total: safeNumber(
-        source.total ??
-          source.total_incidents
-      ),
-
-      open: safeNumber(
-        source.open ??
-          source.open_incidents
-      ),
-
-      investigating: safeNumber(
-        source.investigating ??
-          source.investigating_incidents
-      ),
-
-      resolved: safeNumber(
-        source.resolved ??
-          source.resolved_incidents
-      ),
-
-      critical: safeNumber(
-        source.critical ??
-          source.critical_incidents
-      ),
-
-      high: safeNumber(
-        source.high ??
-          source.high_incidents
-      ),
-
-      medium: safeNumber(
-        source.medium ??
-          source.medium_incidents
-      ),
-
-      low: safeNumber(
-        source.low ??
-          source.low_incidents
-      ),
-    };
-
-    setStats(normalizedStats);
-
-    console.log(
-      "ThreatLens Incidents: Normalized statistics:",
-      normalizedStats
-    );
-
-    return normalizedStats;
-  }
-
-  // ========================================================
-  // Refresh Incidents
-  // ========================================================
-
-  async function refreshIncidents(
-    showRefresh = false
-  ) {
+  async function loadIncidents(showRefresh = false) {
     try {
       if (showRefresh) {
         setRefreshing(true);
@@ -366,47 +113,24 @@ function Incidents({ refreshKey = 0 }) {
 
       setError("");
 
-      console.log(
-        "=============================================="
-      );
-
-      console.log(
-        "ThreatLens: Refreshing incidents..."
-      );
-
-      const results =
-        await Promise.allSettled([
-          loadIncidents(),
-          loadStats(),
+      const [incidentsResponse, statsResponse] =
+        await Promise.all([
+          getIncidents(),
+          getIncidentStats(),
         ]);
 
-      const failed =
-        results.find(
-          (result) =>
-            result.status ===
-            "rejected"
-        );
+      const incidentData = normalizeArray(incidentsResponse);
 
-      if (failed) {
-        throw failed.reason;
-      }
-
-      console.log(
-        "ThreatLens: Incident refresh completed."
-      );
-
-      console.log(
-        "=============================================="
-      );
+      setIncidents(incidentData);
+      setStats(statsResponse || null);
     } catch (err) {
       console.error(
-        "ThreatLens incident refresh error:",
+        "ThreatLens incidents loading error:",
         err
       );
 
       setError(
-        err?.message ||
-          "Failed to load incident data."
+        err?.message || "Unable to load incidents."
       );
     } finally {
       setLoading(false);
@@ -415,215 +139,207 @@ function Incidents({ refreshKey = 0 }) {
   }
 
   // ========================================================
-  // Initial Load + Dashboard Refresh
+  // Initial / Refresh-Key Load
   // ========================================================
 
   useEffect(() => {
-    console.log(
-      "ThreatLens Incidents: refreshKey:",
-      refreshKey
-    );
-
-    refreshIncidents(
-      refreshKey !== 0
-    );
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    loadIncidents(false).catch(() => {});
   }, [refreshKey]);
 
   // ========================================================
-  // Form Change
+  // Create Incident Modal
   // ========================================================
 
-  function handleChange(event) {
-    const {
-      name,
-      value,
-    } = event.target;
+  function openCreateModal() {
+    setNewIncident({
+      title: "",
+      description: "",
+      severity: "Medium",
+      ip_address: "",
+    });
 
-    setForm(
-      (previous) => ({
-        ...previous,
-        [name]: value,
-      })
-    );
+    setCreateError("");
+    setShowCreateModal(true);
+  }
 
-    setError("");
+  function closeCreateModal() {
+    if (createLoading) {
+      return;
+    }
+
+    setShowCreateModal(false);
+    setCreateError("");
   }
 
   // ========================================================
   // Create Incident
   // ========================================================
 
-  async function handleCreateIncident(
-    event
-  ) {
+  async function handleCreateIncident(event) {
     event.preventDefault();
 
-    const title =
-      form.title.trim();
+    setCreateError("");
+
+    const title = newIncident.title.trim();
+    const description = newIncident.description.trim();
+    const ipAddress = newIncident.ip_address.trim();
 
     if (!title) {
-      setError(
-        "Incident title is required."
-      );
-
+      setCreateError("Incident title is required.");
       return;
     }
 
+    if (!description) {
+      setCreateError(
+        "Incident description is required."
+      );
+      return;
+    }
+
+    setCreateLoading(true);
+
     try {
-      setCreating(true);
-      setError("");
-
-      const payload = {
+      await createIncident({
         title,
+        description,
+        severity: newIncident.severity || "Medium",
+        ip_address: ipAddress || null,
+      });
 
-        description:
-          form.description.trim() ||
-          null,
+      setShowCreateModal(false);
 
-        severity:
-          normalizeSeverity(
-            form.severity
-          ),
-
-        status:
-          normalizeStatus(
-            form.status
-          ),
-
-        ip_address:
-          form.ip_address.trim() ||
-          null,
-      };
-
-      console.log(
-        "ThreatLens: Creating incident:",
-        payload
-      );
-
-      await createIncident(
-        payload
-      );
-
-      console.log(
-        "ThreatLens: Incident created successfully."
-      );
-
-      setForm({
+      setNewIncident({
         title: "",
         description: "",
-        severity: "medium",
-        status: "open",
+        severity: "Medium",
         ip_address: "",
       });
 
-      await refreshIncidents(true);
+      await loadIncidents(true);
     } catch (err) {
       console.error(
-        "ThreatLens CREATE INCIDENT ERROR:",
+        "ThreatLens incident creation error:",
         err
       );
 
-      setError(
-        err?.message ||
-          "Failed to create incident."
+      setCreateError(
+        err?.message || "Unable to create incident."
       );
     } finally {
-      setCreating(false);
+      setCreateLoading(false);
     }
   }
 
   // ========================================================
-  // Update Status
+  // Open Incident Details
   // ========================================================
 
-  async function handleStatusChange(
-    incident,
-    newStatus
-  ) {
-    const incidentId =
-      normalizeIncidentId(
-        incident?.id
-      );
-
-    if (incidentId === null) {
-      setError(
-        "Invalid incident ID."
-      );
-
-      console.error(
-        "ThreatLens: Invalid incident ID:",
-        incident?.id
-      );
-
-      return;
-    }
-
-    const currentStatus =
-      normalizeStatus(
-        incident.status
-      );
-
-    const normalizedStatus =
-      normalizeStatus(
-        newStatus
-      );
-
-    if (
-      currentStatus ===
-      normalizedStatus
-    ) {
+  async function openIncident(incidentId) {
+    if (!incidentId) {
       return;
     }
 
     try {
-      setError("");
+      setSelectedLoading(true);
+      setSelectedError("");
+      setSelectedIncident(null);
+      setAttachedIntelligence([]);
 
-      console.log(
-        "ThreatLens: Updating incident:",
-        {
-          incidentId,
-          status:
-            normalizedStatus,
-        }
-      );
+      const incident = await getIncident(incidentId);
 
-      await updateIncident(
-        incidentId,
-        {
-          status:
-            normalizedStatus,
-        }
-      );
+      setSelectedIncident(incident);
 
-      if (
-        selectedIncident?.id ===
-        incidentId
-      ) {
-        setSelectedIncident(
-          (previous) =>
-            previous
-              ? {
-                  ...previous,
-                  status:
-                    normalizedStatus,
-                }
-              : null
+      try {
+        setIntelligenceLoading(true);
+
+        const intelligenceResponse =
+          await getIncidentIntelligence(incidentId);
+
+        setAttachedIntelligence(
+          normalizeArray(intelligenceResponse, [
+            "intelligence",
+            "lookups",
+          ])
         );
-      }
+      } catch (intelError) {
+        console.error(
+          "ThreatLens incident intelligence loading error:",
+          intelError
+        );
 
-      await refreshIncidents(true);
+        setAttachedIntelligence([]);
+      } finally {
+        setIntelligenceLoading(false);
+      }
     } catch (err) {
       console.error(
-        "ThreatLens UPDATE INCIDENT ERROR:",
+        "ThreatLens incident detail error:",
         err
       );
 
-      setError(
+      setSelectedError(
         err?.message ||
-          "Failed to update incident."
+          "Unable to load incident details."
       );
+    } finally {
+      setSelectedLoading(false);
+    }
+  }
+
+  // ========================================================
+  // Close Incident Details
+  // ========================================================
+
+  function closeIncidentDetails() {
+    if (updating || deleting) {
+      return;
+    }
+
+    setSelectedIncident(null);
+    setSelectedError("");
+    setAttachedIntelligence([]);
+  }
+
+  // ========================================================
+  // Update Incident Status
+  // ========================================================
+
+  async function handleStatusUpdate(status) {
+    if (!selectedIncident?.id) {
+      return;
+    }
+
+    try {
+      setUpdating(true);
+      setSelectedError("");
+
+      const updated = await updateIncident(
+        selectedIncident.id,
+        {
+          status,
+        }
+      );
+
+      setSelectedIncident(
+        updated || {
+          ...selectedIncident,
+          status,
+        }
+      );
+
+      await loadIncidents(true);
+    } catch (err) {
+      console.error(
+        "ThreatLens incident update error:",
+        err
+      );
+
+      setSelectedError(
+        err?.message ||
+          "Unable to update incident."
+      );
+    } finally {
+      setUpdating(false);
     }
   }
 
@@ -631,1440 +347,1261 @@ function Incidents({ refreshKey = 0 }) {
   // Delete Incident
   // ========================================================
 
-  async function handleDeleteIncident(
-    incident
-  ) {
-    const incidentId =
-      normalizeIncidentId(
-        incident?.id
-      );
-
-    if (incidentId === null) {
-      setError(
-        "Invalid incident ID."
-      );
-
+  async function handleDeleteIncident() {
+    if (!selectedIncident?.id) {
       return;
     }
 
-    const confirmed =
-      window.confirm(
-        `Delete incident "${incident.title}"?`
-      );
+    const confirmed = window.confirm(
+      `Delete incident "${selectedIncident.title}"? This action cannot be undone.`
+    );
 
     if (!confirmed) {
       return;
     }
 
     try {
-      setError("");
+      setDeleting(true);
+      setSelectedError("");
 
-      console.log(
-        "ThreatLens: Deleting incident:",
-        incidentId
-      );
+      await deleteIncident(selectedIncident.id);
 
-      await deleteIncident(
-        incidentId
-      );
+      setSelectedIncident(null);
+      setAttachedIntelligence([]);
 
-      if (
-        selectedIncident?.id ===
-        incidentId
-      ) {
-        setSelectedIncident(
-          null
-        );
-
-        setIntelligence([]);
-
-        setIncidentScore(null);
-
-        setScoreError("");
-      }
-
-      await refreshIncidents(true);
+      await loadIncidents(true);
     } catch (err) {
       console.error(
-        "ThreatLens DELETE INCIDENT ERROR:",
+        "ThreatLens incident deletion error:",
         err
       );
 
-      setError(
+      setSelectedError(
         err?.message ||
-          "Failed to delete incident."
-      );
-    }
-  }
-
-  // ========================================================
-  // Normalize Incident Score
-  // ========================================================
-
-  function normalizeIncidentScore(data) {
-    if (
-      data === null ||
-      data === undefined
-    ) {
-      return null;
-    }
-
-    // Direct numeric response
-    if (
-      typeof data === "number" ||
-      typeof data === "string"
-    ) {
-      const value = Number(data);
-
-      return Number.isFinite(value)
-        ? value
-        : null;
-    }
-
-    if (
-      typeof data !== "object"
-    ) {
-      return null;
-    }
-
-    const candidates = [
-      data.threatlens_score,
-      data.threatlensScore,
-      data.threat_score,
-      data.threatScore,
-      data.score,
-      data.total_score,
-      data.overall_score,
-      data.value,
-
-      data.data?.threatlens_score,
-      data.data?.threat_score,
-      data.data?.score,
-      data.data?.overall_score,
-
-      data.score?.threatlens_score,
-      data.score?.threat_score,
-      data.score?.score,
-      data.score?.overall_score,
-    ];
-
-    for (const candidate of candidates) {
-      const value = Number(candidate);
-
-      if (Number.isFinite(value)) {
-        return value;
-      }
-    }
-
-    return null;
-  }
-
-  // ========================================================
-  // Normalize Score Response
-  // ========================================================
-
-  function normalizeScoreResponse(data) {
-    if (
-      !data ||
-      typeof data !== "object"
-    ) {
-      return {
-        score: normalizeIncidentScore(data),
-        severity: null,
-        sources: [],
-        raw: data,
-      };
-    }
-
-    const score =
-      normalizeIncidentScore(data);
-
-    const severity =
-      normalizeSeverity(
-        data.severity ||
-          data.threat_severity ||
-          data.data?.severity ||
-          data.score?.severity ||
-          selectedIncident?.severity
-      );
-
-    const possibleSources =
-      data.sources ||
-      data.intelligence_sources ||
-      data.sources_used ||
-      data.data?.sources ||
-      data.data?.intelligence_sources ||
-      data.score?.sources ||
-      [];
-
-    let sources = [];
-
-    if (Array.isArray(possibleSources)) {
-      sources = possibleSources
-        .map((source) => {
-          if (
-            typeof source === "string"
-          ) {
-            return source;
-          }
-
-          if (
-            source &&
-            typeof source === "object"
-          ) {
-            return (
-              source.source ||
-              source.name ||
-              source.provider ||
-              source.type ||
-              null
-            );
-          }
-
-          return null;
-        })
-        .filter(Boolean);
-    }
-
-    return {
-      score,
-      severity,
-      sources,
-      raw: data,
-    };
-  }
-
-  // ========================================================
-  // Build Source List From Intelligence
-  // ========================================================
-
-  function getIntelligenceSources(
-    items
-  ) {
-    if (!Array.isArray(items)) {
-      return [];
-    }
-
-    const sources =
-      items
-        .map(
-          (item) =>
-            item?.source ||
-            item?.provider ||
-            item?.source_name ||
-            null
-        )
-        .filter(Boolean);
-
-    return [
-      ...new Set(sources),
-    ];
-  }
-
-  // ========================================================
-  // View Intelligence + ThreatLens Score
-  // ========================================================
-
-  async function handleViewIntelligence(
-    incident
-  ) {
-    const incidentId =
-      normalizeIncidentId(
-        incident?.id
-      );
-
-    if (incidentId === null) {
-      setError(
-        "Invalid incident ID. Expected a numeric incident ID."
-      );
-
-      console.error(
-        "ThreatLens: Cannot load intelligence. Invalid ID:",
-        incident?.id
-      );
-
-      return;
-    }
-
-    try {
-      setSelectedIncident(
-        {
-          ...incident,
-          id: incidentId,
-        }
-      );
-
-      setLoadingIntelligence(
-        true
-      );
-
-      setLoadingScore(true);
-
-      setIntelligence([]);
-
-      setIncidentScore(null);
-
-      setScoreError("");
-
-      setError("");
-
-      console.log(
-        "=============================================="
-      );
-
-      console.log(
-        "ThreatLens: Loading incident investigation"
-      );
-
-      console.log(
-        "Incident ID:",
-        incidentId
-      );
-
-      console.log(
-        "Incident ID type:",
-        typeof incidentId
-      );
-
-      console.log(
-        "Intelligence endpoint:",
-        `/incidents/${incidentId}/intelligence`
-      );
-
-      console.log(
-        "Score endpoint:",
-        `/incidents/${incidentId}/score`
-      );
-
-      console.log(
-        "=============================================="
-      );
-
-      // ----------------------------------------------------
-      // Load intelligence and score simultaneously.
-      // ----------------------------------------------------
-
-      const [
-        intelligenceResult,
-        scoreResult,
-      ] = await Promise.allSettled([
-        getIncidentIntelligence(
-          incidentId,
-          100,
-          0
-        ),
-
-        getIncidentScore(
-          incidentId
-        ),
-      ]);
-
-      // ----------------------------------------------------
-      // Intelligence result
-      // ----------------------------------------------------
-
-      if (
-        intelligenceResult.status ===
-        "fulfilled"
-      ) {
-        const data =
-          intelligenceResult.value;
-
-        console.log(
-          "ThreatLens: Intelligence response:",
-          data
-        );
-
-        const normalized =
-          normalizeArray(
-            data?.intelligence
-              ? data.intelligence
-              : data,
-            ["intelligence"]
-          );
-
-        setIntelligence(
-          normalized
-        );
-
-        console.log(
-          "ThreatLens: Normalized intelligence:",
-          normalized
-        );
-      } else {
-        console.error(
-          "ThreatLens: Intelligence request failed:",
-          intelligenceResult.reason
-        );
-
-        setError(
-          intelligenceResult.reason
-            ?.message ||
-            "Failed to load incident intelligence."
-        );
-
-        setIntelligence([]);
-      }
-
-      // ----------------------------------------------------
-      // Score result
-      // ----------------------------------------------------
-
-      if (
-        scoreResult.status ===
-        "fulfilled"
-      ) {
-        const data =
-          scoreResult.value;
-
-        console.log(
-          "ThreatLens: Incident score response:",
-          data
-        );
-
-        const normalizedScore =
-          normalizeScoreResponse(
-            data
-          );
-
-        setIncidentScore(
-          normalizedScore
-        );
-
-        console.log(
-          "ThreatLens: Normalized incident score:",
-          normalizedScore
-        );
-      } else {
-        console.error(
-          "ThreatLens: Incident score request failed:",
-          scoreResult.reason
-        );
-
-        setIncidentScore(null);
-
-        setScoreError(
-          scoreResult.reason
-            ?.message ||
-            "Failed to load ThreatLens score."
-        );
-      }
-    } catch (err) {
-      console.error(
-        "ThreatLens INCIDENT INVESTIGATION ERROR:",
-        err
-      );
-
-      setError(
-        err?.message ||
-          "Failed to load incident investigation."
+          "Unable to delete incident."
       );
     } finally {
-      setLoadingIntelligence(
-        false
+      setDeleting(false);
+    }
+  }
+
+  // ========================================================
+  // Helpers
+  // ========================================================
+
+  function formatSeverity(value) {
+    if (!value) {
+      return "Unknown";
+    }
+
+    const text = String(value);
+
+    return (
+      text.charAt(0).toUpperCase() +
+      text.slice(1).toLowerCase()
+    );
+  }
+
+  function normalizeSeverity(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase();
+  }
+
+  function normalizeStatus(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase();
+  }
+
+  function getSeverityClass(value) {
+    const severity = normalizeSeverity(value);
+
+    if (severity === "critical") {
+      return "critical";
+    }
+
+    if (severity === "high") {
+      return "high";
+    }
+
+    if (severity === "medium") {
+      return "medium";
+    }
+
+    if (severity === "low") {
+      return "low";
+    }
+
+    return "unknown";
+  }
+
+  function getStatusClass(value) {
+    const status = normalizeStatus(value);
+
+    if (
+      status === "resolved" ||
+      status === "closed"
+    ) {
+      return "resolved";
+    }
+
+    if (
+      status === "investigating" ||
+      status === "in_progress"
+    ) {
+      return "investigating";
+    }
+
+    if (status === "open") {
+      return "open";
+    }
+
+    return "unknown";
+  }
+
+  function formatStatus(value) {
+    if (!value) {
+      return "Unknown";
+    }
+
+    const text = String(value)
+      .replaceAll("_", " ")
+      .trim();
+
+    return (
+      text.charAt(0).toUpperCase() +
+      text.slice(1).toLowerCase()
+    );
+  }
+
+  function formatDate(value) {
+    if (!value) {
+      return "Unknown";
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return String(value);
+    }
+
+    return date.toLocaleString();
+  }
+
+  function getIncidentIP(incident) {
+    return (
+      incident?.ip_address ||
+      incident?.ip ||
+      incident?.source_ip ||
+      "—"
+    );
+  }
+
+  // ========================================================
+  // Filtered Incidents
+  // ========================================================
+
+  const filteredIncidents = useMemo(() => {
+    const search = searchTerm.trim().toLowerCase();
+
+    return incidents.filter((incident) => {
+      const title = String(
+        incident?.title || ""
+      ).toLowerCase();
+
+      const description = String(
+        incident?.description || ""
+      ).toLowerCase();
+
+      const ip = String(
+        getIncidentIP(incident)
+      ).toLowerCase();
+
+      const incidentSeverity = normalizeSeverity(
+        incident?.severity
       );
 
-      setLoadingScore(false);
-    }
-  }
-
-  // ========================================================
-  // Close Intelligence
-  // ========================================================
-
-  function closeIntelligence() {
-    setSelectedIncident(
-      null
-    );
-
-    setIntelligence([]);
-
-    setIncidentScore(null);
-
-    setScoreError("");
-
-    setLoadingIntelligence(
-      false
-    );
-
-    setLoadingScore(false);
-  }
-
-  // ========================================================
-  // Severity Class
-  // ========================================================
-
-  function getSeverityClass(
-    severity
-  ) {
-    return `incident-severity ${normalizeSeverity(
-      severity
-    )}`;
-  }
-
-  // ========================================================
-  // Status Class
-  // ========================================================
-
-  function getStatusClass(
-    status
-  ) {
-    return `incident-status ${normalizeStatus(
-      status
-    )}`;
-  }
-
-  // ========================================================
-  // Date Formatter
-  // ========================================================
-
-  function formatDate(date) {
-    if (!date) {
-      return "—";
-    }
-
-    const parsed =
-      new Date(date);
-
-    if (
-      Number.isNaN(
-        parsed.getTime()
-      )
-    ) {
-      return String(date);
-    }
-
-    return parsed.toLocaleString();
-  }
-
-  // ========================================================
-  // Score Display
-  // ========================================================
-
-  function formatScore(score) {
-    const numericScore =
-      Number(score);
-
-    if (
-      !Number.isFinite(
-        numericScore
-      )
-    ) {
-      return "—";
-    }
-
-    return Math.round(
-      numericScore
-    );
-  }
-
-  // ========================================================
-  // Score Severity
-  // ========================================================
-
-  function getScoreSeverity() {
-    const scoreSeverity =
-      incidentScore?.severity;
-
-    if (
-      scoreSeverity &&
-      [
-        "critical",
-        "high",
-        "medium",
-        "low",
-      ].includes(
-        normalizeSeverity(
-          scoreSeverity
-        )
-      )
-    ) {
-      return normalizeSeverity(
-        scoreSeverity
+      const incidentStatus = normalizeStatus(
+        incident?.status
       );
-    }
 
-    return normalizeSeverity(
-      selectedIncident?.severity
-    );
-  }
+      const matchesSearch =
+        !search ||
+        title.includes(search) ||
+        description.includes(search) ||
+        ip.includes(search);
+
+      const matchesSeverity =
+        severityFilter === "all" ||
+        incidentSeverity === severityFilter;
+
+      const matchesStatus =
+        statusFilter === "all" ||
+        incidentStatus === statusFilter;
+
+      return (
+        matchesSearch &&
+        matchesSeverity &&
+        matchesStatus
+      );
+    });
+  }, [
+    incidents,
+    searchTerm,
+    severityFilter,
+    statusFilter,
+  ]);
 
   // ========================================================
-  // Loading
+  // Statistics
+  // ========================================================
+
+  const incidentStats = useMemo(() => {
+    const result = {
+      total: incidents.length,
+      open: 0,
+      investigating: 0,
+      resolved: 0,
+      critical: 0,
+      high: 0,
+    };
+
+    incidents.forEach((incident) => {
+      const status = normalizeStatus(
+        incident?.status
+      );
+
+      const severity = normalizeSeverity(
+        incident?.severity
+      );
+
+      if (status === "open") {
+        result.open += 1;
+      }
+
+      if (
+        status === "investigating" ||
+        status === "in_progress"
+      ) {
+        result.investigating += 1;
+      }
+
+      if (
+        status === "resolved" ||
+        status === "closed"
+      ) {
+        result.resolved += 1;
+      }
+
+      if (severity === "critical") {
+        result.critical += 1;
+      }
+
+      if (severity === "high") {
+        result.high += 1;
+      }
+    });
+
+    if (stats) {
+      result.total =
+        stats.total ??
+        stats.total_incidents ??
+        stats.count ??
+        result.total;
+
+      result.open =
+        stats.open ??
+        stats.open_incidents ??
+        result.open;
+
+      result.investigating =
+        stats.investigating ??
+        stats.in_progress ??
+        stats.investigating_incidents ??
+        result.investigating;
+
+      result.resolved =
+        stats.resolved ??
+        stats.resolved_incidents ??
+        stats.closed ??
+        result.resolved;
+    }
+
+    return result;
+  }, [incidents, stats]);
+
+  // ========================================================
+  // Loading State
   // ========================================================
 
   if (loading) {
     return (
       <section className="incidents-page">
-        <div className="incidents-loading">
-          Loading incidents...
+        <div className="incidents-content">
+          <div className="page-heading">
+            <div>
+              <h3>Incidents</h3>
+
+              <p>
+                Track, investigate and manage
+                security incidents.
+              </p>
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="chart-message">
+              Loading incidents...
+            </div>
+          </div>
         </div>
       </section>
     );
   }
 
   // ========================================================
-  // Render
+  // Main Render
   // ========================================================
 
   return (
     <section className="incidents-page">
+      <div className="incidents-content">
 
-      {/* ==================================================
-          HEADER
-      ================================================== */}
+        {/* ==================================================
+            PAGE HEADER
+        ================================================== */}
 
-      <div className="incidents-header">
-
-        <div>
-          <h2>
-            Security Incidents
-          </h2>
-
-          <p>
-            Investigate, manage and correlate
-            security incidents.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          className="incident-refresh-button"
-          onClick={() =>
-            refreshIncidents(true)
-          }
-          disabled={
-            refreshing ||
-            creating
-          }
-        >
-          {refreshing
-            ? "↻ Refreshing..."
-            : "↻ Refresh"}
-        </button>
-
-      </div>
-
-      {/* ==================================================
-          ERROR
-      ================================================== */}
-
-      {error && (
-        <div className="incident-error">
-          {error}
-        </div>
-      )}
-
-      {/* ==================================================
-          STATISTICS
-      ================================================== */}
-
-      <div className="incident-stat-grid">
-
-        <div className="incident-stat-card">
-          <span>
-            Total Incidents
-          </span>
-
-          <strong>
-            {stats.total}
-          </strong>
-        </div>
-
-        <div className="incident-stat-card">
-          <span>Open</span>
-
-          <strong>
-            {stats.open}
-          </strong>
-        </div>
-
-        <div className="incident-stat-card">
-          <span>
-            Investigating
-          </span>
-
-          <strong>
-            {stats.investigating}
-          </strong>
-        </div>
-
-        <div className="incident-stat-card">
-          <span>Resolved</span>
-
-          <strong>
-            {stats.resolved}
-          </strong>
-        </div>
-
-        <div className="incident-stat-card critical">
-          <span>Critical</span>
-
-          <strong>
-            {stats.critical}
-          </strong>
-        </div>
-
-        <div className="incident-stat-card high">
-          <span>High</span>
-
-          <strong>
-            {stats.high}
-          </strong>
-        </div>
-
-        <div className="incident-stat-card medium">
-          <span>Medium</span>
-
-          <strong>
-            {stats.medium}
-          </strong>
-        </div>
-
-        <div className="incident-stat-card low">
-          <span>Low</span>
-
-          <strong>
-            {stats.low}
-          </strong>
-        </div>
-
-      </div>
-
-      {/* ==================================================
-          CREATE INCIDENT
-      ================================================== */}
-
-      <div className="incident-create-card">
-
-        <div className="incident-section-title">
-
-          <h3>
-            Create Incident
-          </h3>
-
-          <p>
-            Create a new security investigation.
-          </p>
-
-        </div>
-
-        <form
-          className="incident-form"
-          onSubmit={
-            handleCreateIncident
-          }
-        >
-
-          <div className="incident-form-row">
-
-            <div className="incident-form-group">
-
-              <label htmlFor="incident-title">
-                Title
-              </label>
-
-              <input
-                id="incident-title"
-                type="text"
-                name="title"
-                value={form.title}
-                onChange={
-                  handleChange
-                }
-                placeholder="Suspicious IP investigation"
-                required
-              />
-
-            </div>
-
-            <div className="incident-form-group">
-
-              <label htmlFor="incident-ip">
-                IP Address
-              </label>
-
-              <input
-                id="incident-ip"
-                type="text"
-                name="ip_address"
-                value={
-                  form.ip_address
-                }
-                onChange={
-                  handleChange
-                }
-                placeholder="8.8.8.8"
-              />
-
-            </div>
-
-          </div>
-
-          <div className="incident-form-row">
-
-            <div className="incident-form-group">
-
-              <label htmlFor="incident-severity">
-                Severity
-              </label>
-
-              <select
-                id="incident-severity"
-                name="severity"
-                value={
-                  form.severity
-                }
-                onChange={
-                  handleChange
-                }
-              >
-                <option value="critical">
-                  Critical
-                </option>
-
-                <option value="high">
-                  High
-                </option>
-
-                <option value="medium">
-                  Medium
-                </option>
-
-                <option value="low">
-                  Low
-                </option>
-              </select>
-
-            </div>
-
-            <div className="incident-form-group">
-
-              <label htmlFor="incident-status">
-                Status
-              </label>
-
-              <select
-                id="incident-status"
-                name="status"
-                value={
-                  form.status
-                }
-                onChange={
-                  handleChange
-                }
-              >
-                <option value="open">
-                  Open
-                </option>
-
-                <option value="investigating">
-                  Investigating
-                </option>
-
-                <option value="resolved">
-                  Resolved
-                </option>
-              </select>
-
-            </div>
-
-          </div>
-
-          <div className="incident-form-group">
-
-            <label htmlFor="incident-description">
-              Description
-            </label>
-
-            <textarea
-              id="incident-description"
-              name="description"
-              value={
-                form.description
-              }
-              onChange={
-                handleChange
-              }
-              placeholder="Describe the security incident..."
-              rows="4"
-            />
-
-          </div>
-
-          <button
-            type="submit"
-            className="incident-create-button"
-            disabled={
-              creating ||
-              refreshing
-            }
-          >
-            {creating
-              ? "Creating..."
-              : "Create Incident"}
-          </button>
-
-        </form>
-
-      </div>
-
-      {/* ==================================================
-          INCIDENT QUEUE
-      ================================================== */}
-
-      <div className="incident-list-card">
-
-        <div className="incident-section-title">
-
+        <div className="page-heading">
           <div>
-            <h3>
-              Incident Queue
-            </h3>
+            <h3>Incidents</h3>
+
+            <p>
+              Track, investigate and manage
+              security incidents.
+            </p>
           </div>
 
-          <span>
-            {incidents.length} incident
-            {incidents.length === 1
-              ? ""
-              : "s"}
-          </span>
-
-        </div>
-
-        {incidents.length === 0 ? (
-
-          <div className="incident-empty">
-            No security incidents found.
-          </div>
-
-        ) : (
-
-          <div className="incident-table-wrapper">
-
-            <table className="incident-table">
-
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Incident</th>
-                  <th>IP Address</th>
-                  <th>Severity</th>
-                  <th>Status</th>
-                  <th>Created</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-
-              <tbody>
-
-                {incidents.map(
-                  (incident) => {
-
-                    const incidentId =
-                      normalizeIncidentId(
-                        incident.id
-                      );
-
-                    const severity =
-                      normalizeSeverity(
-                        incident.severity
-                      );
-
-                    const status =
-                      normalizeStatus(
-                        incident.status
-                      );
-
-                    return (
-                      <tr
-                        key={
-                          incidentId
-                        }
-                      >
-
-                        {/* ID */}
-
-                        <td>
-                          <strong>
-                            #{incidentId}
-                          </strong>
-                        </td>
-
-                        {/* INCIDENT */}
-
-                        <td>
-
-                          <div className="incident-title">
-                            {
-                              incident.title
-                            }
-                          </div>
-
-                          {incident.description && (
-                            <div className="incident-description">
-                              {
-                                incident.description
-                              }
-                            </div>
-                          )}
-
-                        </td>
-
-                        {/* IP */}
-
-                        <td>
-                          {incident.ip_address ? (
-                            <code>
-                              {
-                                incident.ip_address
-                              }
-                            </code>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-
-                        {/* SEVERITY */}
-
-                        <td>
-                          <span
-                            className={getSeverityClass(
-                              severity
-                            )}
-                          >
-                            {severity.toUpperCase()}
-                          </span>
-                        </td>
-
-                        {/* STATUS */}
-
-                        <td>
-
-                          <select
-                            className={getStatusClass(
-                              status
-                            )}
-                            value={
-                              status
-                            }
-                            onChange={(
-                              event
-                            ) =>
-                              handleStatusChange(
-                                incident,
-                                event
-                                  .target
-                                  .value
-                              )
-                            }
-                            disabled={
-                              refreshing ||
-                              incidentId ===
-                                null
-                            }
-                            aria-label={`Status for incident ${incidentId}`}
-                          >
-
-                            <option value="open">
-                              Open
-                            </option>
-
-                            <option value="investigating">
-                              Investigating
-                            </option>
-
-                            <option value="resolved">
-                              Resolved
-                            </option>
-
-                          </select>
-
-                        </td>
-
-                        {/* CREATED */}
-
-                        <td>
-                          {formatDate(
-                            incident.created_at
-                          )}
-                        </td>
-
-                        {/* ACTIONS */}
-
-                        <td>
-
-                          <div className="incident-actions">
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleViewIntelligence(
-                                  incident
-                                )
-                              }
-                              disabled={
-                                loadingIntelligence &&
-                                selectedIncident?.id ===
-                                  incidentId
-                              }
-                            >
-                              {loadingIntelligence &&
-                              selectedIncident?.id ===
-                                incidentId
-                                ? "Loading..."
-                                : "Intelligence"}
-                            </button>
-
-                            <button
-                              type="button"
-                              className="danger"
-                              onClick={() =>
-                                handleDeleteIncident(
-                                  incident
-                                )
-                              }
-                              disabled={
-                                refreshing ||
-                                incidentId ===
-                                  null
-                              }
-                            >
-                              Delete
-                            </button>
-
-                          </div>
-
-                        </td>
-
-                      </tr>
-                    );
-                  }
-                )}
-
-              </tbody>
-
-            </table>
-
-          </div>
-
-        )}
-
-      </div>
-
-      {/* ==================================================
-          INTELLIGENCE PANEL
-      ================================================== */}
-
-      {selectedIncident && (
-
-        <div className="incident-intelligence-card">
-
-          <div className="incident-section-title">
-
-            <div>
-
-              <h3>
-                Incident Intelligence
-              </h3>
-
-              <p>
-                #{selectedIncident.id}{" "}
-                {selectedIncident.title}
-              </p>
-
-            </div>
+          <div className="heading-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() =>
+                loadIncidents(true).catch(() => {})
+              }
+              disabled={refreshing}
+            >
+              {refreshing
+                ? "↻ Refreshing..."
+                : "↻ Refresh"}
+            </button>
 
             <button
               type="button"
-              onClick={
-                closeIntelligence
+              className="primary-button"
+              onClick={openCreateModal}
+            >
+              + New Incident
+            </button>
+          </div>
+        </div>
+
+        {/* ==================================================
+            ERROR
+        ================================================== */}
+
+        {error && (
+          <div className="dashboard-error">
+            {error}
+          </div>
+        )}
+
+        {/* ==================================================
+            STATISTICS
+        ================================================== */}
+
+        <div className="stats-grid incidents-stats">
+
+          <div className="stat-card">
+            <div className="stat-header">
+              <span>Total Incidents</span>
+
+              <span className="stat-icon">
+                ◇
+              </span>
+            </div>
+
+            <strong>
+              {incidentStats.total}
+            </strong>
+
+            <div className="stat-change">
+              Security incidents
+            </div>
+          </div>
+
+          <div className="stat-card">
+            <div className="stat-header">
+              <span>Open</span>
+
+              <span className="stat-icon">
+                !
+              </span>
+            </div>
+
+            <strong>
+              {incidentStats.open}
+            </strong>
+
+            <div className="stat-change">
+              Awaiting investigation
+            </div>
+          </div>
+
+          <div className="stat-card">
+            <div className="stat-header">
+              <span>Investigating</span>
+
+              <span className="stat-icon">
+                ◎
+              </span>
+            </div>
+
+            <strong>
+              {incidentStats.investigating}
+            </strong>
+
+            <div className="stat-change">
+              Currently under investigation
+            </div>
+          </div>
+
+          <div className="stat-card critical-card">
+            <div className="stat-header">
+              <span>Critical / High</span>
+
+              <span className="stat-icon">
+                ⚠
+              </span>
+            </div>
+
+            <strong>
+              {incidentStats.critical +
+                incidentStats.high}
+            </strong>
+
+            <div className="stat-change negative">
+              High-priority incidents
+            </div>
+          </div>
+        </div>
+
+        {/* ==================================================
+            INCIDENT MANAGEMENT
+        ================================================== */}
+
+        <div className="panel incidents-panel">
+
+          <div className="panel-header">
+            <div>
+              <h4>Incident Management</h4>
+
+              <p>
+                Investigate and manage active
+                security incidents.
+              </p>
+            </div>
+          </div>
+
+          {/* ==================================================
+              FILTERS
+          ================================================== */}
+
+          <div className="incident-filters">
+
+            <input
+              type="text"
+              className="incident-search"
+              placeholder="Search title, description or IP..."
+              value={searchTerm}
+              onChange={(event) =>
+                setSearchTerm(
+                  event.target.value
+                )
+              }
+            />
+
+            <select
+              className="settings-select"
+              value={severityFilter}
+              onChange={(event) =>
+                setSeverityFilter(
+                  event.target.value
+                )
               }
             >
-              Close
-            </button>
+              <option value="all">
+                All Severities
+              </option>
 
+              <option value="critical">
+                Critical
+              </option>
+
+              <option value="high">
+                High
+              </option>
+
+              <option value="medium">
+                Medium
+              </option>
+
+              <option value="low">
+                Low
+              </option>
+            </select>
+
+            <select
+              className="settings-select"
+              value={statusFilter}
+              onChange={(event) =>
+                setStatusFilter(
+                  event.target.value
+                )
+              }
+            >
+              <option value="all">
+                All Statuses
+              </option>
+
+              <option value="open">
+                Open
+              </option>
+
+              <option value="investigating">
+                Investigating
+              </option>
+
+              <option value="resolved">
+                Resolved
+              </option>
+            </select>
           </div>
 
           {/* ==================================================
-              INCIDENT THREAT ASSESSMENT
+              INCIDENT TABLE
           ================================================== */}
 
-          <div className="incident-threat-assessment">
+          {filteredIncidents.length === 0 ? (
+            <div className="chart-message">
+              {incidents.length === 0
+                ? "No incidents have been created yet."
+                : "No incidents match the selected filters."}
+            </div>
+          ) : (
+            <div className="table-wrapper incidents-table-wrapper">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Incident</th>
+                    <th>IP Address</th>
+                    <th>Severity</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
 
-            <div className="incident-threat-score-card">
+                <tbody>
+                  {filteredIncidents.map(
+                    (incident) => {
+                      const severityClass =
+                        getSeverityClass(
+                          incident?.severity
+                        );
 
-              <span>
-                ThreatLens Score
-              </span>
+                      const statusClass =
+                        getStatusClass(
+                          incident?.status
+                        );
 
-              {loadingScore ? (
+                      return (
+                        <tr
+                          key={incident?.id}
+                        >
+                          <td>
+                            <strong>
+                              #{incident?.id}
+                            </strong>
+                          </td>
 
-                <strong>
-                  Calculating...
-                </strong>
+                          <td>
+                            <div className="incident-title-cell">
+                              <strong>
+                                {incident?.title ||
+                                  "Untitled Incident"}
+                              </strong>
 
-              ) : incidentScore?.score !== null &&
-                incidentScore?.score !== undefined ? (
+                              <small>
+                                {incident?.description ||
+                                  "No description"}
+                              </small>
+                            </div>
+                          </td>
 
-                <strong>
-                  {formatScore(
-                    incidentScore.score
+                          <td>
+                            <span className="mono-text">
+                              {getIncidentIP(
+                                incident
+                              )}
+                            </span>
+                          </td>
+
+                          <td>
+                            <span
+                              className={`risk ${severityClass}`}
+                            >
+                              {formatSeverity(
+                                incident?.severity
+                              )}
+                            </span>
+                          </td>
+
+                          <td>
+                            <span
+                              className={`incident-status ${statusClass}`}
+                            >
+                              {formatStatus(
+                                incident?.status
+                              )}
+                            </span>
+                          </td>
+
+                          <td>
+                            <span className="date-text">
+                              {formatDate(
+                                incident?.created_at
+                              )}
+                            </span>
+                          </td>
+
+                          <td>
+                            <button
+                              type="button"
+                              className="text-button"
+                              onClick={() =>
+                                openIncident(
+                                  incident?.id
+                                )
+                              }
+                            >
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    }
                   )}
-                  <small>
-                    /100
-                  </small>
-                </strong>
-
-              ) : (
-
-                <strong>
-                  —
-                </strong>
-
-              )}
-
-            </div>
-
-            <div className="incident-threat-severity-card">
-
-              <span>
-                Severity
-              </span>
-
-              <strong
-                className={getSeverityClass(
-                  getScoreSeverity()
-                )}
-              >
-                {getScoreSeverity().toUpperCase()}
-              </strong>
-
-            </div>
-
-            <div className="incident-threat-status-card">
-
-              <span>
-                Incident Status
-              </span>
-
-              <strong
-                className={getStatusClass(
-                  selectedIncident.status
-                )}
-              >
-                {normalizeStatus(
-                  selectedIncident.status
-                ).toUpperCase()}
-              </strong>
-
-            </div>
-
-          </div>
-
-          {/* ==================================================
-              SCORE ERROR
-          ================================================== */}
-
-          {scoreError && (
-            <div className="incident-error">
-              {scoreError}
+                </tbody>
+              </table>
             </div>
           )}
+        </div>
 
-          {/* ==================================================
-              INTELLIGENCE SOURCES
-          ================================================== */}
+        {/* ==================================================
+            CREATE INCIDENT MODAL
+        ================================================== */}
 
-          <div className="incident-sources-section">
+        {showCreateModal && (
+          <div
+            className="modal-overlay"
+            onMouseDown={(event) => {
+              if (
+                event.target ===
+                event.currentTarget
+              ) {
+                closeCreateModal();
+              }
+            }}
+          >
+            <div className="scan-modal incident-modal">
 
-            <div className="incident-section-title">
+              <div className="scan-modal-header">
+                <div>
+                  <span className="modal-label">
+                    INCIDENT MANAGEMENT
+                  </span>
 
-              <div>
+                  <h3>
+                    Create New Incident
+                  </h3>
 
-                <h3>
-                  Intelligence Sources
-                </h3>
+                  <p>
+                    Create and track a new
+                    security incident.
+                  </p>
+                </div>
 
-                <p>
-                  Threat intelligence providers
-                  contributing to this investigation.
-                </p>
-
+                <button
+                  type="button"
+                  className="modal-close"
+                  onClick={closeCreateModal}
+                  disabled={createLoading}
+                  aria-label="Close"
+                >
+                  ×
+                </button>
               </div>
 
-            </div>
+              <form
+                className="scan-form"
+                onSubmit={
+                  handleCreateIncident
+                }
+              >
+                <label htmlFor="incident-title">
+                  Incident Title
+                </label>
 
-            <div className="incident-source-list">
+                <input
+                  id="incident-title"
+                  type="text"
+                  value={newIncident.title}
+                  onChange={(event) => {
+                    setNewIncident(
+                      (previous) => ({
+                        ...previous,
+                        title:
+                          event.target.value,
+                      })
+                    );
 
-              {(
-                incidentScore?.sources?.length
-                  ? incidentScore.sources
-                  : getIntelligenceSources(
-                      intelligence
+                    setCreateError("");
+                  }}
+                  placeholder="Suspicious IP activity"
+                  disabled={createLoading}
+                />
+
+                <label htmlFor="incident-description">
+                  Description
+                </label>
+
+                <textarea
+                  id="incident-description"
+                  value={
+                    newIncident.description
+                  }
+                  onChange={(event) => {
+                    setNewIncident(
+                      (previous) => ({
+                        ...previous,
+                        description:
+                          event.target.value,
+                      })
+                    );
+
+                    setCreateError("");
+                  }}
+                  placeholder="Describe the security incident..."
+                  rows={5}
+                  disabled={createLoading}
+                />
+
+                <label htmlFor="incident-ip">
+                  IP Address
+                </label>
+
+                <input
+                  id="incident-ip"
+                  type="text"
+                  value={
+                    newIncident.ip_address
+                  }
+                  onChange={(event) => {
+                    setNewIncident(
+                      (previous) => ({
+                        ...previous,
+                        ip_address:
+                          event.target.value,
+                      })
+                    );
+
+                    setCreateError("");
+                  }}
+                  placeholder="185.220.101.1"
+                  disabled={createLoading}
+                />
+
+                <label htmlFor="incident-severity">
+                  Severity
+                </label>
+
+                <select
+                  id="incident-severity"
+                  value={
+                    newIncident.severity
+                  }
+                  onChange={(event) =>
+                    setNewIncident(
+                      (previous) => ({
+                        ...previous,
+                        severity:
+                          event.target.value,
+                      })
                     )
-              ).length > 0 ? (
+                  }
+                  disabled={createLoading}
+                >
+                  <option value="Critical">
+                    Critical
+                  </option>
 
-                (
-                  incidentScore?.sources?.length
-                    ? incidentScore.sources
-                    : getIntelligenceSources(
-                        intelligence
-                      )
-                ).map(
-                  (source, index) => (
+                  <option value="High">
+                    High
+                  </option>
 
-                    <div
-                      className="incident-source-badge"
-                      key={`${source}-${index}`}
+                  <option value="Medium">
+                    Medium
+                  </option>
+
+                  <option value="Low">
+                    Low
+                  </option>
+                </select>
+
+                {createError && (
+                  <div className="scan-error">
+                    {createError}
+                  </div>
+                )}
+
+                <div className="result-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={closeCreateModal}
+                    disabled={createLoading}
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    className="primary-button"
+                    disabled={createLoading}
+                  >
+                    {createLoading
+                      ? "Creating..."
+                      : "Create Incident"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ==================================================
+            INCIDENT DETAILS MODAL
+        ================================================== */}
+
+        {(selectedLoading ||
+          selectedIncident) && (
+          <div
+            className="modal-overlay"
+            onMouseDown={(event) => {
+              if (
+                event.target ===
+                  event.currentTarget &&
+                !updating &&
+                !deleting
+              ) {
+                closeIncidentDetails();
+              }
+            }}
+          >
+            <div className="scan-modal incident-details-modal">
+
+              {selectedLoading ? (
+                <div className="scan-progress">
+                  <div className="spinner" />
+
+                  <strong>
+                    Loading Incident...
+                  </strong>
+
+                  <span>
+                    Retrieving incident
+                    intelligence.
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <div className="scan-modal-header">
+                    <div>
+                      <span className="modal-label">
+                        INCIDENT #
+                        {selectedIncident?.id}
+                      </span>
+
+                      <h3>
+                        {
+                          selectedIncident?.title
+                        }
+                      </h3>
+
+                      <p>
+                        Incident details and
+                        attached threat
+                        intelligence.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="modal-close"
+                      onClick={
+                        closeIncidentDetails
+                      }
+                      disabled={
+                        updating ||
+                        deleting
+                      }
+                      aria-label="Close"
                     >
+                      ×
+                    </button>
+                  </div>
+
+                  {selectedError && (
+                    <div className="scan-error">
+                      {selectedError}
+                    </div>
+                  )}
+
+                  {/* ==================================================
+                      INCIDENT SUMMARY
+                  ================================================== */}
+
+                  <div className="incident-detail-grid">
+
+                    <div className="incident-detail-card">
                       <span>
-                        ✓
+                        SEVERITY
                       </span>
 
                       <strong>
-                        {source}
+                        <span
+                          className={`risk ${getSeverityClass(
+                            selectedIncident?.severity
+                          )}`}
+                        >
+                          {formatSeverity(
+                            selectedIncident?.severity
+                          )}
+                        </span>
                       </strong>
                     </div>
 
-                  )
-                )
+                    <div className="incident-detail-card">
+                      <span>
+                        STATUS
+                      </span>
 
-              ) : (
-
-                <div className="incident-empty">
-                  No intelligence sources
-                  reported for this incident.
-                </div>
-
-              )}
-
-            </div>
-
-          </div>
-
-          {/* ==================================================
-              INTELLIGENCE LOOKUPS
-          ================================================== */}
-
-          <div className="incident-lookups-section">
-
-            <div className="incident-section-title">
-
-              <div>
-
-                <h3>
-                  Intelligence Lookups
-                </h3>
-
-                <p>
-                  Intelligence records associated
-                  with this incident.
-                </p>
-
-              </div>
-
-              {loadingIntelligence && (
-                <span>
-                  Loading...
-                </span>
-              )}
-
-            </div>
-
-            {loadingIntelligence ? (
-
-              <div className="incident-empty">
-                Loading intelligence...
-              </div>
-
-            ) : intelligence.length === 0 ? (
-
-              <div className="incident-empty">
-                No intelligence lookups are
-                associated with this incident.
-              </div>
-
-            ) : (
-
-              <div className="incident-intelligence-list">
-
-                {intelligence.map(
-                  (item, index) => (
-
-                    <div
-                      className="incident-intelligence-item"
-                      key={
-                        item.id ??
-                        `${item.source || "source"}-${index}`
-                      }
-                    >
-
-                      <div>
-                        <span>
-                          Source
-                        </span>
-
-                        <strong>
-                          {item.source ||
-                            "Unknown Source"}
-                        </strong>
-                      </div>
-
-                      <div>
-                        <span>
-                          IP Address
-                        </span>
-
-                        <strong>
-                          {item.ip ||
-                            item.ip_address ||
-                            "—"}
-                        </strong>
-                      </div>
-
-                      <div>
-                        <span>
-                          Risk Score
-                        </span>
-
-                        <strong>
-                          {item.risk_score ??
-                            item.score ??
-                            item.threatlens_score ??
-                            "—"}
-                        </strong>
-                      </div>
-
-                      <div>
-                        <span>
-                          Created
-                        </span>
-
-                        <strong>
-                          {formatDate(
-                            item.created_at
+                      <strong>
+                        <span
+                          className={`incident-status ${getStatusClass(
+                            selectedIncident?.status
+                          )}`}
+                        >
+                          {formatStatus(
+                            selectedIncident?.status
                           )}
-                        </strong>
-                      </div>
-
+                        </span>
+                      </strong>
                     </div>
 
-                  )
-                )}
+                    <div className="incident-detail-card">
+                      <span>
+                        IP ADDRESS
+                      </span>
 
-              </div>
+                      <strong className="mono-text">
+                        {getIncidentIP(
+                          selectedIncident
+                        )}
+                      </strong>
+                    </div>
 
-            )}
+                    <div className="incident-detail-card">
+                      <span>
+                        CREATED
+                      </span>
 
+                      <strong>
+                        {formatDate(
+                          selectedIncident?.created_at
+                        )}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {/* ==================================================
+                      DESCRIPTION
+                  ================================================== */}
+
+                  <div className="incident-description">
+                    <span>
+                      DESCRIPTION
+                    </span>
+
+                    <p>
+                      {selectedIncident
+                        ?.description ||
+                        "No description provided."}
+                    </p>
+                  </div>
+
+                  {/* ==================================================
+                      STATUS CONTROLS
+                  ================================================== */}
+
+                  <div className="incident-actions-section">
+                    <div>
+                      <strong>
+                        Update Status
+                      </strong>
+
+                      <p>
+                        Change the current
+                        incident lifecycle
+                        state.
+                      </p>
+                    </div>
+
+                    <div className="incident-status-actions">
+
+                      <button
+                        type="button"
+                        className={`incident-action-button ${
+                          normalizeStatus(
+                            selectedIncident?.status
+                          ) === "open"
+                            ? "selected"
+                            : ""
+                        }`}
+                        onClick={() =>
+                          handleStatusUpdate(
+                            "Open"
+                          )
+                        }
+                        disabled={
+                          updating ||
+                          deleting
+                        }
+                      >
+                        Open
+                      </button>
+
+                      <button
+                        type="button"
+                        className={`incident-action-button ${
+                          normalizeStatus(
+                            selectedIncident?.status
+                          ) === "investigating" ||
+                          normalizeStatus(
+                            selectedIncident?.status
+                          ) === "in_progress"
+                            ? "selected"
+                            : ""
+                        }`}
+                        onClick={() =>
+                          handleStatusUpdate(
+                            "Investigating"
+                          )
+                        }
+                        disabled={
+                          updating ||
+                          deleting
+                        }
+                      >
+                        Investigating
+                      </button>
+
+                      <button
+                        type="button"
+                        className={`incident-action-button ${
+                          normalizeStatus(
+                            selectedIncident?.status
+                          ) === "resolved"
+                            ? "selected"
+                            : ""
+                        }`}
+                        onClick={() =>
+                          handleStatusUpdate(
+                            "Resolved"
+                          )
+                        }
+                        disabled={
+                          updating ||
+                          deleting
+                        }
+                      >
+                        Resolved
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* ==================================================
+                      ATTACHED INTELLIGENCE
+                  ================================================== */}
+
+                  <div className="incident-intelligence">
+
+                    <div className="panel-header">
+                      <div>
+                        <h4>
+                          Attached Intelligence
+                        </h4>
+
+                        <p>
+                          Threat intelligence
+                          associated with this
+                          incident.
+                        </p>
+                      </div>
+                    </div>
+
+                    {intelligenceLoading ? (
+                      <div className="chart-message">
+                        Loading attached
+                        intelligence...
+                      </div>
+                    ) : attachedIntelligence.length ===
+                      0 ? (
+                      <div className="chart-message">
+                        No intelligence
+                        lookups are attached
+                        to this incident.
+                      </div>
+                    ) : (
+                      <div className="table-wrapper incidents-table-wrapper">
+                        <table className="data-table">
+                          <thead>
+                            <tr>
+                              <th>ID</th>
+                              <th>
+                                IP Address
+                              </th>
+                              <th>
+                                Source
+                              </th>
+                              <th>
+                                Created
+                              </th>
+                            </tr>
+                          </thead>
+
+                          <tbody>
+                            {attachedIntelligence.map(
+                              (
+                                intelligence,
+                                index
+                              ) => (
+                                <tr
+                                  key={
+                                    intelligence?.id ||
+                                    index
+                                  }
+                                >
+                                  <td>
+                                    #
+                                    {
+                                      intelligence?.id
+                                    }
+                                  </td>
+
+                                  <td>
+                                    <span className="mono-text">
+                                      {intelligence
+                                        ?.ip_address ||
+                                        intelligence
+                                          ?.ip ||
+                                        "—"}
+                                    </span>
+                                  </td>
+
+                                  <td>
+                                    {intelligence
+                                      ?.source ||
+                                      intelligence
+                                        ?.provider ||
+                                      "Threat Intelligence"}
+                                  </td>
+
+                                  <td>
+                                    {formatDate(
+                                      intelligence
+                                        ?.created_at
+                                    )}
+                                  </td>
+                                </tr>
+                              )
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ==================================================
+                      BOTTOM ACTIONS
+                  ================================================== */}
+
+                  <div className="result-actions">
+
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={
+                        closeIncidentDetails
+                      }
+                      disabled={
+                        updating ||
+                        deleting
+                      }
+                    >
+                      Close
+                    </button>
+
+                    <button
+                      type="button"
+                      className="settings-reset-button"
+                      onClick={
+                        handleDeleteIncident
+                      }
+                      disabled={
+                        updating ||
+                        deleting
+                      }
+                    >
+                      {deleting
+                        ? "Deleting..."
+                        : "Delete Incident"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
-
-        </div>
-
-      )}
-
+        )}
+      </div>
     </section>
   );
 }
+
+// ==========================================================
+// Export
+// ==========================================================
 
 export default Incidents;

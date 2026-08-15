@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   correlateIP,
@@ -8,7 +8,8 @@ import {
 import "../index.css";
 
 // ==========================================================
-// ThreatLens - Threat Intelligence
+// ThreatLens — Threat Intelligence
+// Premium SOC Intelligence Workspace
 // ==========================================================
 
 function ThreatIntelligence() {
@@ -74,7 +75,7 @@ function ThreatIntelligence() {
   }, []);
 
   // ========================================================
-  // Threat Score Extraction
+  // Threat Score
   // ========================================================
 
   function getThreatScore(data) {
@@ -82,56 +83,29 @@ function ThreatIntelligence() {
       return 0;
     }
 
-    const candidates = [
-      data.threat_score,
-      data.score,
-      data.threatScore,
-      data.threatlens_score,
-      data.threatlensScore,
-      data?.threatlens?.score,
-      data?.correlation?.score,
-      data?.data?.threat_score,
-      data?.data?.score,
-    ];
+    const score = Number(
+      data.threatlens_score
+    );
 
-    for (const value of candidates) {
-      const number = Number(value);
-
-      if (
-        Number.isFinite(number) &&
-        number >= 0
-      ) {
-        return Math.round(number);
-      }
+    if (
+      Number.isFinite(score) &&
+      score >= 0
+    ) {
+      return Math.round(score);
     }
 
     return 0;
   }
 
   // ========================================================
-  // Severity Extraction
+  // Severity
   // ========================================================
 
   function getSeverity(data, score) {
-    if (!data) {
-      return "unknown";
-    }
-
-    const candidates = [
-      data.severity,
-      data.risk_level,
-      data.riskLevel,
-      data.threat_level,
-      data.threatLevel,
-      data?.threatlens?.severity,
-      data?.correlation?.severity,
-      data?.data?.severity,
-    ];
-
-    for (const value of candidates) {
-      if (value) {
-        return String(value).toLowerCase();
-      }
+    if (data?.severity) {
+      return String(
+        data.severity
+      ).toLowerCase();
     }
 
     if (score >= 80) {
@@ -167,66 +141,6 @@ function ThreatIntelligence() {
   }
 
   // ========================================================
-  // Source Extraction
-  // ========================================================
-
-  function getSourceData(data, source) {
-    if (!data) {
-      return null;
-    }
-
-    const lower = source.toLowerCase();
-
-    const possibleSources = [
-      data?.sources,
-      data?.correlation,
-      data?.data,
-    ];
-
-    for (const container of possibleSources) {
-      if (!container) {
-        continue;
-      }
-
-      if (container[source]) {
-        return container[source];
-      }
-
-      if (container[lower]) {
-        return container[lower];
-      }
-
-      const key = Object.keys(container).find(
-        (item) =>
-          String(item).toLowerCase() === lower
-      );
-
-      if (key) {
-        return container[key];
-      }
-    }
-
-    return null;
-  }
-
-  // ========================================================
-  // Source Status
-  // ========================================================
-
-  function getSourceStatus(data, source) {
-    const sourceData = getSourceData(
-      data,
-      source
-    );
-
-    if (sourceData !== null) {
-      return "Success";
-    }
-
-    return "Checked";
-  }
-
-  // ========================================================
   // Scan IP
   // ========================================================
 
@@ -240,7 +154,9 @@ function ThreatIntelligence() {
     // ------------------------------------------------------
 
     if (!targetIP) {
-      setError("Please enter an IP address.");
+      setError(
+        "Please enter an IP address."
+      );
       return;
     }
 
@@ -252,7 +168,7 @@ function ThreatIntelligence() {
     }
 
     // ------------------------------------------------------
-    // Start scan
+    // Start Scan
     // ------------------------------------------------------
 
     try {
@@ -261,31 +177,21 @@ function ThreatIntelligence() {
       setResult(null);
 
       console.log(
-        "Starting ThreatLens scan:",
+        "[ThreatLens] Starting correlation:",
         targetIP
       );
-
-      // ----------------------------------------------------
-      // Correlation Engine
-      // ----------------------------------------------------
 
       const correlationResult =
         await correlateIP(targetIP);
 
       console.log(
-        "Correlation Engine result:",
+        "[ThreatLens] Correlation result:",
         correlationResult
       );
 
-      setResult({
-        ...correlationResult,
-        analyzed_ip: targetIP,
-      });
+      setResult(correlationResult);
 
-      // ----------------------------------------------------
-      // Refresh history
-      // ----------------------------------------------------
-
+      // Refresh history after successful scan
       await loadHistory();
     } catch (err) {
       console.error(
@@ -309,10 +215,11 @@ function ThreatIntelligence() {
   function resetScan() {
     setResult(null);
     setError("");
+    setIP("");
   }
 
   // ========================================================
-  // Extract Result Information
+  // Result Information
   // ========================================================
 
   const score = getThreatScore(result);
@@ -323,45 +230,86 @@ function ThreatIntelligence() {
   );
 
   const analyzedIP =
-    result?.analyzed_ip ||
-    result?.ip_address ||
-    result?.ip ||
-    ip;
+    result?.ip || ip;
 
   // ========================================================
-  // Source Data
+  // Exact Backend Source Data
   // ========================================================
 
-  const virusTotal = getSourceData(
-    result,
-    "VirusTotal"
+  const virusTotal =
+    result?.sources?.virustotal || null;
+
+  const abuseIPDB =
+    result?.sources?.abuseipdb || null;
+
+  const otx =
+    result?.sources?.otx || null;
+
+  // ========================================================
+  // Source Configuration
+  // ========================================================
+
+  const sourceCards = useMemo(
+    () => [
+      {
+        key: "virustotal",
+        short: "VT",
+        name: "VirusTotal",
+        description: "IP reputation",
+        data: virusTotal,
+      },
+      {
+        key: "abuseipdb",
+        short: "AIP",
+        name: "AbuseIPDB",
+        description: "Abuse reputation",
+        data: abuseIPDB,
+      },
+      {
+        key: "otx",
+        short: "OTX",
+        name: "AlienVault OTX",
+        description: "Threat intelligence",
+        data: otx,
+      },
+    ],
+    [virusTotal, abuseIPDB, otx]
   );
 
-  const abuseIPDB = getSourceData(
-    result,
-    "AbuseIPDB"
-  );
+  // ========================================================
+  // History Risk
+  // ========================================================
 
-  const otx = getSourceData(
-    result,
-    "OTX"
-  );
+  function getHistoryRisk(score) {
+    if (score >= 80) {
+      return "critical";
+    }
+
+    if (score >= 60) {
+      return "high";
+    }
+
+    if (score >= 30) {
+      return "medium";
+    }
+
+    return "low";
+  }
 
   // ========================================================
   // Render
   // ========================================================
 
   return (
-    <section className="dashboard">
+    <section className="dashboard threat-intelligence-page">
 
       {/* ==================================================
           PAGE HEADER
       ================================================== */}
 
-      <div className="page-heading">
+      <div className="page-heading threat-intel-heading">
 
         <div>
-
           <span className="modal-label">
             THREAT INTELLIGENCE
           </span>
@@ -371,13 +319,19 @@ function ThreatIntelligence() {
           </h3>
 
           <p>
-            Analyze IP addresses using
-            multiple threat intelligence
-            sources and the ThreatLens
-            correlation engine.
+            Analyze IP addresses across
+            multiple intelligence providers
+            using the ThreatLens correlation
+            engine.
           </p>
-
         </div>
+
+        {result && (
+          <div className="intel-heading-status">
+            <span className="status-dot" />
+            Analysis Complete
+          </div>
+        )}
 
       </div>
 
@@ -385,22 +339,28 @@ function ThreatIntelligence() {
           SCAN PANEL
       ================================================== */}
 
-      <div className="panel">
+      <div className="panel threat-scan-panel">
 
         <div className="panel-header">
 
           <div>
+            <div className="panel-kicker">
+              CORRELATION ENGINE
+            </div>
 
             <h4>
               New Threat Scan
             </h4>
 
             <p>
-              Enter an IPv4 address to
-              perform multi-source threat
-              correlation.
+              Enter an IPv4 address to perform
+              multi-source threat correlation.
             </p>
+          </div>
 
+          <div className="scan-engine-status">
+            <span className="status-dot" />
+            Engine Ready
           </div>
 
         </div>
@@ -414,49 +374,67 @@ function ThreatIntelligence() {
             IP Address
           </label>
 
-          <div
-            style={{
-              display: "flex",
-              gap: "12px",
-              alignItems: "stretch",
-            }}
-          >
+          <div className="scan-input-row">
 
-            <input
-              id="threat-ip"
-              type="text"
-              value={ip}
-              onChange={(event) => {
-                setIP(event.target.value);
-                setError("");
-              }}
-              placeholder="8.8.8.8"
-              autoComplete="off"
-              spellCheck="false"
-              disabled={loading}
-              style={{
-                flex: 1,
-              }}
-            />
+            <div className="scan-input-wrapper">
+
+              <span className="scan-input-prefix">
+                IP
+              </span>
+
+              <input
+                id="threat-ip"
+                type="text"
+                value={ip}
+                onChange={(event) => {
+                  setIP(event.target.value);
+                  setError("");
+                }}
+                placeholder="8.8.8.8"
+                autoComplete="off"
+                spellCheck="false"
+                disabled={loading}
+              />
+
+            </div>
 
             <button
               type="submit"
-              className="primary-button"
+              className="primary-button scan-button"
               disabled={loading}
             >
-              {loading
-                ? "Analyzing..."
-                : "Analyze IP"}
+              {loading ? (
+                <>
+                  <span className="button-spinner" />
+                  Analyzing
+                </>
+              ) : (
+                <>
+                  Analyze IP
+                  <span className="button-arrow">
+                    →
+                  </span>
+                </>
+              )}
             </button>
 
           </div>
 
-          <span className="input-hint">
-            Example: 8.8.8.8
-          </span>
+          <div className="scan-form-footer">
+
+            <span className="input-hint">
+              Example: 8.8.8.8
+            </span>
+
+            <span className="scan-provider-hint">
+              VT · AbuseIPDB · OTX
+            </span>
+
+          </div>
 
           {error && (
             <div className="scan-error">
+              <span>!</span>
               {error}
             </div>
           )}
@@ -470,27 +448,38 @@ function ThreatIntelligence() {
       ================================================== */}
 
       {loading && (
-
-        <div className="panel">
+        <div className="panel scan-loading-panel">
 
           <div className="scan-progress">
 
-            <div className="spinner" />
+            <div className="scan-loader-ring">
+              <div className="spinner" />
+            </div>
 
-            <strong>
-              Running Correlation Engine...
-            </strong>
+            <div className="scan-progress-content">
 
-            <span>
-              Querying VirusTotal,
-              AbuseIPDB and AlienVault
-              OTX.
-            </span>
+              <strong>
+                Running Correlation Engine
+              </strong>
+
+              <span>
+                Querying VirusTotal,
+                AbuseIPDB and AlienVault OTX.
+              </span>
+
+            </div>
+
+            <div className="scan-progress-indicator">
+              LIVE
+            </div>
 
           </div>
 
-        </div>
+          <div className="scan-loading-line">
+            <span />
+          </div>
 
+        </div>
       )}
 
       {/* ==================================================
@@ -498,192 +487,223 @@ function ThreatIntelligence() {
       ================================================== */}
 
       {!loading && result && (
+        <div className="threat-result-container">
 
-        <div className="panel">
+          {/* ==================================================
+              RESULT HEADER
+          ================================================== */}
 
-          <div className="panel-header">
+          <div className="panel result-panel">
 
-            <div>
+            <div className="panel-header">
 
-              <h4>
-                Threat Analysis Result
-              </h4>
+              <div>
+                <div className="panel-kicker">
+                  ANALYSIS COMPLETE
+                </div>
 
-              <p>
-                Correlation analysis completed
-                successfully.
-              </p>
+                <h4>
+                  Threat Analysis Result
+                </h4>
+
+                <p>
+                  Correlation analysis completed
+                  successfully across all available
+                  intelligence sources.
+                </p>
+              </div>
+
+              <button
+                className="secondary-button"
+                onClick={resetScan}
+              >
+                + Scan Another IP
+              </button>
 
             </div>
 
-            <button
-              className="secondary-button"
-              onClick={resetScan}
+            {/* ==================================================
+                SCORE
+            ================================================== */}
+
+            <div
+              className={`score-card score-card-${severity}`}
             >
-              Scan Another IP
-            </button>
 
-          </div>
+              <div className="score-main">
 
-          {/* ==================================================
-              SCORE
-          ================================================== */}
+                <span className="score-label">
+                  THREATLENS SCORE
+                </span>
 
-          <div className="score-card">
+                <strong>
+                  {score}
+                  <small>/100</small>
+                </strong>
 
-            <div>
+                <span className="score-description">
+                  Correlated threat risk assessment
+                </span>
 
-              <span>
-                THREATLENS SCORE
-              </span>
+              </div>
 
-              <strong>
-                {score}
-              </strong>
+              <div className="score-severity-wrapper">
+
+                <span className="score-severity-label">
+                  RISK LEVEL
+                </span>
+
+                <span
+                  className={`score-severity ${severity}`}
+                >
+                  <span className="severity-dot" />
+                  {formatSeverity(severity)}
+                </span>
+
+              </div>
 
             </div>
 
-            <span
-              className={`score-severity ${severity}`}
-            >
-              {formatSeverity(severity)}
-            </span>
+            {/* ==================================================
+                ANALYZED IP
+            ================================================== */}
 
-          </div>
+            <div className="result-ip">
 
-          {/* ==================================================
-              IP
-          ================================================== */}
-
-          <div className="result-ip">
-
-            <span>
-              ANALYZED IP ADDRESS
-            </span>
-
-            <strong>
-              {analyzedIP}
-            </strong>
-
-          </div>
-
-          {/* ==================================================
-              INTELLIGENCE SOURCES
-          ================================================== */}
-
-          <div className="source-grid">
-
-            {/* VirusTotal */}
-
-            <div className="source-card">
-
-              <div className="source-icon">
-                VT
+              <div className="result-ip-label">
+                ANALYZED IP ADDRESS
               </div>
 
-              <div>
+              <div className="result-ip-value">
+
+                <span className="ip-address-icon">
+                  ⌁
+                </span>
 
                 <strong>
-                  VirusTotal
+                  {analyzedIP}
                 </strong>
 
-                <small>
-                  IP reputation
-                </small>
-
               </div>
-
-              <span
-                className={`source-status ${
-                  getSourceStatus(
-                    result,
-                    "VirusTotal"
-                  ) === "Success"
-                    ? "success"
-                    : "warning"
-                }`}
-              >
-                {getSourceStatus(
-                  result,
-                  "VirusTotal"
-                )}
-              </span>
 
             </div>
 
-            {/* AbuseIPDB */}
+            {/* ==================================================
+                RECOMMENDATION
+            ================================================== */}
 
-            <div className="source-card">
+            {result?.recommendation && (
+              <div className="result-recommendation">
 
-              <div className="source-icon">
-                AIP
-              </div>
+                <div className="result-recommendation-label">
+                  RECOMMENDATION
+                </div>
 
-              <div>
-
-                <strong>
-                  AbuseIPDB
-                </strong>
-
-                <small>
-                  Abuse reputation
-                </small>
+                <div className="result-recommendation-text">
+                  {result.recommendation}
+                </div>
 
               </div>
+            )}
 
-              <span
-                className={`source-status ${
-                  getSourceStatus(
-                    result,
-                    "AbuseIPDB"
-                  ) === "Success"
-                    ? "success"
-                    : "warning"
-                }`}
-              >
-                {getSourceStatus(
-                  result,
-                  "AbuseIPDB"
-                )}
-              </span>
+            {/* ==================================================
+                ALERT STATUS
+            ================================================== */}
 
-            </div>
+            {result?.alert_created && (
+              <div className="result-alert-status">
 
-            {/* AlienVault OTX */}
+                <span className="status-dot" />
 
-            <div className="source-card">
+                <div>
+                  <strong>
+                    Security Alert Created
+                  </strong>
 
-              <div className="source-icon">
-                OTX
-              </div>
-
-              <div>
-
-                <strong>
-                  AlienVault OTX
-                </strong>
-
-                <small>
-                  Threat intelligence
-                </small>
+                  {result.alert_id && (
+                    <span>
+                      Alert ID #{result.alert_id}
+                    </span>
+                  )}
+                </div>
 
               </div>
+            )}
 
-              <span
-                className={`source-status ${
-                  getSourceStatus(
-                    result,
-                    "OTX"
-                  ) === "Success"
-                    ? "success"
-                    : "warning"
-                }`}
-              >
-                {getSourceStatus(
-                  result,
-                  "OTX"
-                )}
-              </span>
+            {/* ==================================================
+                INTELLIGENCE SOURCES
+            ================================================== */}
+
+            <div className="source-section">
+
+              <div className="source-section-header">
+
+                <div>
+                  <strong>
+                    Intelligence Sources
+                  </strong>
+
+                  <span>
+                    Multi-source correlation status
+                  </span>
+                </div>
+
+                <span className="source-count">
+                  3 PROVIDERS
+                </span>
+
+              </div>
+
+              <div className="source-grid">
+
+                {sourceCards.map((source) => {
+
+                  const success =
+                    source.data !== null;
+
+                  return (
+                    <div
+                      className="source-card"
+                      key={source.key}
+                    >
+
+                      <div className="source-icon">
+                        {source.short}
+                      </div>
+
+                      <div className="source-card-info">
+
+                        <strong>
+                          {source.name}
+                        </strong>
+
+                        <small>
+                          {source.description}
+                        </small>
+
+                      </div>
+
+                      <span
+                        className={`source-status ${
+                          success
+                            ? "success"
+                            : "warning"
+                        }`}
+                      >
+                        <span className="source-status-dot" />
+
+                        {success
+                          ? "Success"
+                          : "Unavailable"}
+
+                      </span>
+
+                    </div>
+                  );
+
+                })}
+
+              </div>
 
             </div>
 
@@ -693,181 +713,100 @@ function ThreatIntelligence() {
               SOURCE DETAILS
           ================================================== */}
 
-          <div
-            className="dashboard-grid"
-            style={{
-              marginTop: "20px",
-            }}
-          >
+          <div className="source-details-grid">
 
-            {/* VirusTotal */}
+            {sourceCards.map((source) => (
 
-            <div className="panel">
+              <div
+                className="panel source-detail-panel"
+                key={source.key}
+              >
 
-              <div className="panel-header">
+                <div className="panel-header">
 
-                <div>
+                  <div>
+                    <div className="source-detail-title">
 
-                  <h4>
-                    VirusTotal
-                  </h4>
+                      <span className="source-detail-icon">
+                        {source.short}
+                      </span>
 
-                  <p>
-                    Reputation analysis
-                  </p>
+                      <div>
+
+                        <h4>
+                          {source.name}
+                        </h4>
+
+                        <p>
+                          {source.description}
+                        </p>
+
+                      </div>
+
+                    </div>
+                  </div>
+
+                  <span
+                    className={`source-status ${
+                      source.data !== null
+                        ? "success"
+                        : "warning"
+                    }`}
+                  >
+                    <span className="source-status-dot" />
+
+                    {source.data !== null
+                      ? "Available"
+                      : "Unavailable"}
+
+                  </span>
+
+                </div>
+
+                <div className="source-detail-body">
+
+                  {source.data ? (
+
+                    <pre>
+                      {JSON.stringify(
+                        source.data,
+                        null,
+                        2
+                      )}
+                    </pre>
+
+                  ) : (
+
+                    <div className="chart-message">
+                      {source.name} did not return
+                      data for this lookup.
+                    </div>
+
+                  )}
 
                 </div>
 
               </div>
 
-              <div className="chart-message">
-
-                {virusTotal ? (
-
-                  <pre
-                    style={{
-                      whiteSpace:
-                        "pre-wrap",
-                      wordBreak:
-                        "break-word",
-                      fontSize:
-                        "12px",
-                    }}
-                  >
-                    {JSON.stringify(
-                      virusTotal,
-                      null,
-                      2
-                    )}
-                  </pre>
-
-                ) : (
-
-                  "VirusTotal data included in correlation response."
-
-                )}
-
-              </div>
-
-            </div>
-
-            {/* AbuseIPDB */}
-
-            <div className="panel">
-
-              <div className="panel-header">
-
-                <div>
-
-                  <h4>
-                    AbuseIPDB
-                  </h4>
-
-                  <p>
-                    Abuse reputation
-                  </p>
-
-                </div>
-
-              </div>
-
-              <div className="chart-message">
-
-                {abuseIPDB ? (
-
-                  <pre
-                    style={{
-                      whiteSpace:
-                        "pre-wrap",
-                      wordBreak:
-                        "break-word",
-                      fontSize:
-                        "12px",
-                    }}
-                  >
-                    {JSON.stringify(
-                      abuseIPDB,
-                      null,
-                      2
-                    )}
-                  </pre>
-
-                ) : (
-
-                  "AbuseIPDB data included in correlation response."
-
-                )}
-
-              </div>
-
-            </div>
-
-            {/* OTX */}
-
-            <div className="panel">
-
-              <div className="panel-header">
-
-                <div>
-
-                  <h4>
-                    AlienVault OTX
-                  </h4>
-
-                  <p>
-                    Threat intelligence
-                  </p>
-
-                </div>
-
-              </div>
-
-              <div className="chart-message">
-
-                {otx ? (
-
-                  <pre
-                    style={{
-                      whiteSpace:
-                        "pre-wrap",
-                      wordBreak:
-                        "break-word",
-                      fontSize:
-                        "12px",
-                    }}
-                  >
-                    {JSON.stringify(
-                      otx,
-                      null,
-                      2
-                    )}
-                  </pre>
-
-                ) : (
-
-                  "OTX data included in correlation response."
-
-                )}
-
-              </div>
-
-            </div>
+            ))}
 
           </div>
 
         </div>
-
       )}
 
       {/* ==================================================
           INTELLIGENCE HISTORY
       ================================================== */}
 
-      <div className="panel">
+      <div className="panel intelligence-history-panel">
 
         <div className="panel-header">
 
           <div>
+            <div className="panel-kicker">
+              ACTIVITY
+            </div>
 
             <h4>
               Intelligence History
@@ -875,9 +814,8 @@ function ThreatIntelligence() {
 
             <p>
               Recent threat intelligence
-              lookups.
+              lookups performed by ThreatLens.
             </p>
-
           </div>
 
           <button
@@ -894,14 +832,33 @@ function ThreatIntelligence() {
 
         {historyLoading ? (
 
-          <div className="chart-message">
-            Loading intelligence history...
+          <div className="history-loading">
+
+            <div className="spinner" />
+
+            <span>
+              Loading intelligence history...
+            </span>
+
           </div>
 
         ) : history.length === 0 ? (
 
-          <div className="chart-message">
-            No intelligence lookups found.
+          <div className="history-empty">
+
+            <div className="history-empty-icon">
+              ◌
+            </div>
+
+            <strong>
+              No intelligence lookups
+            </strong>
+
+            <span>
+              Run a threat scan to populate
+              intelligence history.
+            </span>
+
           </div>
 
         ) : (
@@ -924,40 +881,37 @@ function ThreatIntelligence() {
                 const historyScore =
                   Number(
                     item?.threat_score ??
+                      item?.threatlens_score ??
                       item?.score ??
                       0
                   );
 
-                let risk = "low";
-
-                if (
-                  historyScore >= 80
-                ) {
-                  risk = "critical";
-                } else if (
-                  historyScore >= 60
-                ) {
-                  risk = "high";
-                } else if (
-                  historyScore >= 30
-                ) {
-                  risk = "medium";
-                }
+                const risk =
+                  getHistoryRisk(
+                    historyScore
+                  );
 
                 return (
+
                   <div
-                    className="ip-row"
+                    className="ip-row intelligence-history-row"
                     key={
                       item?.id ||
                       `${historyIP}-${source}-${index}`
                     }
                   >
 
-                    <div>
+                    <div className="history-ip-info">
 
-                      <strong>
-                        {historyIP}
-                      </strong>
+                      <div className="history-ip-primary">
+
+                        <span className="history-ip-indicator" />
+
+                        <strong>
+                          {historyIP}
+                        </strong>
+
+                      </div>
 
                       <small>
                         Source: {source}
@@ -965,32 +919,32 @@ function ThreatIntelligence() {
 
                     </div>
 
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems:
-                          "center",
-                        gap: "12px",
-                      }}
-                    >
+                    <div className="history-result">
 
-                      <small>
-                        Score:{" "}
-                        {historyScore}
-                      </small>
+                      <div className="history-score">
+
+                        <small>
+                          Score
+                        </small>
+
+                        <strong>
+                          {historyScore}
+                        </strong>
+
+                      </div>
 
                       <span
                         className={`risk ${risk}`}
                       >
-                        {formatSeverity(
-                          risk
-                        )}
+                        {formatSeverity(risk)}
                       </span>
 
                     </div>
 
                   </div>
+
                 );
+
               }
             )}
 

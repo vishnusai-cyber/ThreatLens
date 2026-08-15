@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 /* ==========================================================
    ThreatLens - Default Settings
-   ========================================================== */
+========================================================== */
 
 const DEFAULT_SETTINGS = {
   autoRefresh: true,
@@ -14,47 +14,57 @@ const DEFAULT_SETTINGS = {
   darkMode: true,
 };
 
+const SETTINGS_STORAGE_KEY = "threatlens_settings";
+
 /* ==========================================================
    ThreatLens - Settings Component
-   ========================================================== */
+========================================================== */
 
 function Settings() {
   /* ========================================================
      Load Settings
-     ======================================================== */
+  ======================================================== */
 
   const [settings, setSettings] = useState(() => {
     try {
       const savedSettings = localStorage.getItem(
-        "threatlens_settings"
+        SETTINGS_STORAGE_KEY
       );
 
       if (savedSettings) {
+        const parsedSettings = JSON.parse(savedSettings);
+
         return {
           ...DEFAULT_SETTINGS,
-          ...JSON.parse(savedSettings),
+          ...parsedSettings,
         };
       }
 
-      return DEFAULT_SETTINGS;
+      return {
+        ...DEFAULT_SETTINGS,
+      };
     } catch (error) {
       console.error(
         "ThreatLens: Failed to load settings",
         error
       );
 
-      return DEFAULT_SETTINGS;
+      return {
+        ...DEFAULT_SETTINGS,
+      };
     }
   });
 
+  const [resetMessage, setResetMessage] = useState("");
+
   /* ========================================================
      Persist Settings
-     ======================================================== */
+  ======================================================== */
 
   useEffect(() => {
     try {
       localStorage.setItem(
-        "threatlens_settings",
+        SETTINGS_STORAGE_KEY,
         JSON.stringify(settings)
       );
     } catch (error) {
@@ -66,45 +76,119 @@ function Settings() {
   }, [settings]);
 
   /* ========================================================
+     Listen For Settings Changes
+  ======================================================== */
+
+  useEffect(() => {
+    const handleStorageChange = (event) => {
+      if (event.key !== SETTINGS_STORAGE_KEY) {
+        return;
+      }
+
+      try {
+        if (!event.newValue) {
+          setSettings({
+            ...DEFAULT_SETTINGS,
+          });
+
+          return;
+        }
+
+        const updatedSettings = JSON.parse(event.newValue);
+
+        setSettings({
+          ...DEFAULT_SETTINGS,
+          ...updatedSettings,
+        });
+      } catch (error) {
+        console.error(
+          "ThreatLens: Failed to synchronize settings",
+          error
+        );
+      }
+    };
+
+    window.addEventListener(
+      "storage",
+      handleStorageChange
+    );
+
+    return () => {
+      window.removeEventListener(
+        "storage",
+        handleStorageChange
+      );
+    };
+  }, []);
+
+  /* ========================================================
      Toggle Setting
-     ======================================================== */
+  ======================================================== */
 
   const handleChange = (key) => {
     setSettings((prev) => ({
       ...prev,
       [key]: !prev[key],
     }));
+
+    setResetMessage("");
   };
 
   /* ========================================================
      Refresh Interval
-     ======================================================== */
+  ======================================================== */
 
   const handleIntervalChange = (event) => {
     setSettings((prev) => ({
       ...prev,
       refreshInterval: event.target.value,
     }));
+
+    setResetMessage("");
   };
 
   /* ========================================================
      Reset Settings
-     ======================================================== */
+  ======================================================== */
 
   const handleReset = () => {
-    setSettings(DEFAULT_SETTINGS);
+    const resetSettings = {
+      ...DEFAULT_SETTINGS,
+    };
+
+    setSettings(resetSettings);
+
+    try {
+      localStorage.setItem(
+        SETTINGS_STORAGE_KEY,
+        JSON.stringify(resetSettings)
+      );
+    } catch (error) {
+      console.error(
+        "ThreatLens: Failed to reset settings",
+        error
+      );
+    }
+
+    setResetMessage(
+      "Settings restored to default values."
+    );
+
+    window.setTimeout(() => {
+      setResetMessage("");
+    }, 3000);
   };
 
   /* ========================================================
      Render
-     ======================================================== */
+  ======================================================== */
 
   return (
     <div className="settings-page">
 
       {/* ====================================================
           PAGE HEADER
-          ==================================================== */}
+      ==================================================== */}
 
       <div className="settings-header">
         <div>
@@ -119,7 +203,7 @@ function Settings() {
 
       {/* ====================================================
           DASHBOARD SETTINGS
-          ==================================================== */}
+      ==================================================== */}
 
       <div className="settings-card">
 
@@ -133,7 +217,7 @@ function Settings() {
 
         {/* --------------------------------------------------
             Auto Refresh
-            -------------------------------------------------- */}
+        -------------------------------------------------- */}
 
         <div className="setting-row">
 
@@ -150,7 +234,9 @@ function Settings() {
             className={`settings-toggle ${
               settings.autoRefresh ? "active" : ""
             }`}
-            onClick={() => handleChange("autoRefresh")}
+            onClick={() =>
+              handleChange("autoRefresh")
+            }
             aria-label="Toggle auto refresh"
             aria-pressed={settings.autoRefresh}
           >
@@ -161,7 +247,7 @@ function Settings() {
 
         {/* --------------------------------------------------
             Refresh Interval
-            -------------------------------------------------- */}
+        -------------------------------------------------- */}
 
         <div className="setting-row">
 
@@ -200,7 +286,7 @@ function Settings() {
 
         {/* --------------------------------------------------
             Dark Mode
-            -------------------------------------------------- */}
+        -------------------------------------------------- */}
 
         <div className="setting-row">
 
@@ -217,7 +303,9 @@ function Settings() {
             className={`settings-toggle ${
               settings.darkMode ? "active" : ""
             }`}
-            onClick={() => handleChange("darkMode")}
+            onClick={() =>
+              handleChange("darkMode")
+            }
             aria-label="Toggle dark mode"
             aria-pressed={settings.darkMode}
           >
@@ -230,7 +318,7 @@ function Settings() {
 
       {/* ====================================================
           NOTIFICATION SETTINGS
-          ==================================================== */}
+      ==================================================== */}
 
       <div className="settings-card">
 
@@ -244,7 +332,7 @@ function Settings() {
 
         {/* --------------------------------------------------
             Notifications
-            -------------------------------------------------- */}
+        -------------------------------------------------- */}
 
         <div className="setting-row">
 
@@ -261,7 +349,9 @@ function Settings() {
             className={`settings-toggle ${
               settings.notifications ? "active" : ""
             }`}
-            onClick={() => handleChange("notifications")}
+            onClick={() =>
+              handleChange("notifications")
+            }
             aria-label="Toggle notifications"
             aria-pressed={settings.notifications}
           >
@@ -272,7 +362,7 @@ function Settings() {
 
         {/* --------------------------------------------------
             Critical Alerts
-            -------------------------------------------------- */}
+        -------------------------------------------------- */}
 
         <div className="setting-row">
 
@@ -289,7 +379,9 @@ function Settings() {
             className={`settings-toggle ${
               settings.criticalAlerts ? "active" : ""
             }`}
-            onClick={() => handleChange("criticalAlerts")}
+            onClick={() =>
+              handleChange("criticalAlerts")
+            }
             disabled={!settings.notifications}
             aria-label="Toggle critical alerts"
             aria-pressed={settings.criticalAlerts}
@@ -301,7 +393,7 @@ function Settings() {
 
         {/* --------------------------------------------------
             High Severity Alerts
-            -------------------------------------------------- */}
+        -------------------------------------------------- */}
 
         <div className="setting-row">
 
@@ -320,7 +412,9 @@ function Settings() {
             className={`settings-toggle ${
               settings.highAlerts ? "active" : ""
             }`}
-            onClick={() => handleChange("highAlerts")}
+            onClick={() =>
+              handleChange("highAlerts")
+            }
             disabled={!settings.notifications}
             aria-label="Toggle high severity alerts"
             aria-pressed={settings.highAlerts}
@@ -332,7 +426,7 @@ function Settings() {
 
         {/* --------------------------------------------------
             Sound Alerts
-            -------------------------------------------------- */}
+        -------------------------------------------------- */}
 
         <div className="setting-row">
 
@@ -349,7 +443,9 @@ function Settings() {
             className={`settings-toggle ${
               settings.soundAlerts ? "active" : ""
             }`}
-            onClick={() => handleChange("soundAlerts")}
+            onClick={() =>
+              handleChange("soundAlerts")
+            }
             disabled={!settings.notifications}
             aria-label="Toggle sound alerts"
             aria-pressed={settings.soundAlerts}
@@ -363,7 +459,7 @@ function Settings() {
 
       {/* ====================================================
           SYSTEM INFORMATION
-          ==================================================== */}
+      ==================================================== */}
 
       <div className="settings-card">
 
@@ -377,16 +473,12 @@ function Settings() {
 
         <div className="settings-info-grid">
 
-          {/* Platform */}
-
           <div className="settings-info-item">
             <span>Platform</span>
             <strong>
               ThreatLens
             </strong>
           </div>
-
-          {/* Environment */}
 
           <div className="settings-info-item">
             <span>Environment</span>
@@ -395,16 +487,12 @@ function Settings() {
             </strong>
           </div>
 
-          {/* Backend */}
-
           <div className="settings-info-item">
             <span>Backend</span>
             <strong>
               FastAPI
             </strong>
           </div>
-
-          {/* Database */}
 
           <div className="settings-info-item">
             <span>Database</span>
@@ -413,8 +501,6 @@ function Settings() {
             </strong>
           </div>
 
-          {/* Threat Intelligence */}
-
           <div className="settings-info-item">
             <span>Threat Intelligence</span>
 
@@ -422,8 +508,6 @@ function Settings() {
               VirusTotal + AbuseIPDB + OTX
             </strong>
           </div>
-
-          {/* Correlation Engine */}
 
           <div className="settings-info-item">
             <span>Threat Correlation</span>
@@ -439,7 +523,7 @@ function Settings() {
 
       {/* ====================================================
           RESET SETTINGS
-          ==================================================== */}
+      ==================================================== */}
 
       <div className="settings-card settings-reset-card">
 
@@ -458,6 +542,18 @@ function Settings() {
         >
           Reset to Defaults
         </button>
+
+        {resetMessage && (
+          <p
+            style={{
+              marginTop: "10px",
+              color: "#45d487",
+              fontSize: "10px",
+            }}
+          >
+            {resetMessage}
+          </p>
+        )}
 
       </div>
 
