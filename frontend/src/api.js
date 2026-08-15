@@ -750,23 +750,117 @@ export async function getIncidentStats() {
   );
 }
 
-export async function createIncident(
-  data
-) {
-  if (!data) {
+// ==========================================================
+// CREATE INCIDENT
+// ==========================================================
+
+export async function createIncident(data) {
+  if (!data || typeof data !== "object") {
     throw new Error(
       "Incident data is required."
     );
   }
 
+  // --------------------------------------------------------
+  // Normalize severity.
+  //
+  // FastAPI expects ONLY:
+  // critical / high / medium / low
+  // --------------------------------------------------------
+
+  const severity = String(
+    data.severity || "medium"
+  )
+    .trim()
+    .toLowerCase();
+
+  const allowedSeverities = [
+    "critical",
+    "high",
+    "medium",
+    "low",
+  ];
+
+  if (
+    !allowedSeverities.includes(
+      severity
+    )
+  ) {
+    throw new Error(
+      "Invalid severity. Please select Critical, High, Medium or Low."
+    );
+  }
+
+  // --------------------------------------------------------
+  // Build clean payload
+  // --------------------------------------------------------
+
+  const payload = {
+    title: String(
+      data.title || ""
+    ).trim(),
+
+    description: String(
+      data.description || ""
+    ).trim(),
+
+    severity,
+
+    ip_address:
+      data.ip_address === null ||
+      data.ip_address === undefined ||
+      String(
+        data.ip_address
+      ).trim() === ""
+        ? null
+        : String(
+            data.ip_address
+          ).trim(),
+  };
+
+  // --------------------------------------------------------
+  // Validation
+  // --------------------------------------------------------
+
+  if (!payload.title) {
+    throw new Error(
+      "Incident title is required."
+    );
+  }
+
+  if (!payload.description) {
+    throw new Error(
+      "Incident description is required."
+    );
+  }
+
+  // --------------------------------------------------------
+  // Debug
+  // --------------------------------------------------------
+
+  console.log(
+    "[ThreatLens] POST /incidents payload:",
+    payload
+  );
+
+  // --------------------------------------------------------
+  // Send request
+  // --------------------------------------------------------
+
   return await apiRequest(
     "/incidents",
     {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(
+        payload
+      ),
     }
   );
 }
+
+// ==========================================================
+// UPDATE INCIDENT
+// ==========================================================
 
 export async function updateIncident(
   id,
@@ -781,16 +875,87 @@ export async function updateIncident(
     );
   }
 
+  if (!data || typeof data !== "object") {
+    throw new Error(
+      "Incident update data is required."
+    );
+  }
+
+  // --------------------------------------------------------
+  // Normalize severity if it is included in an update.
+  // --------------------------------------------------------
+
+  const payload = {
+    ...data,
+  };
+
+  if (
+    payload.severity !==
+      undefined &&
+    payload.severity !== null
+  ) {
+    payload.severity = String(
+      payload.severity
+    )
+      .trim()
+      .toLowerCase();
+
+    const allowedSeverities = [
+      "critical",
+      "high",
+      "medium",
+      "low",
+    ];
+
+    if (
+      !allowedSeverities.includes(
+        payload.severity
+      )
+    ) {
+      throw new Error(
+        "Invalid severity. Please select Critical, High, Medium or Low."
+      );
+    }
+  }
+
+  // --------------------------------------------------------
+  // Normalize status if included.
+  // --------------------------------------------------------
+
+  if (
+    payload.status !==
+      undefined &&
+    payload.status !== null
+  ) {
+    payload.status = String(
+      payload.status
+    )
+      .trim()
+      .toLowerCase()
+      .replaceAll(" ", "_");
+  }
+
+  console.log(
+    "[ThreatLens] PUT /incidents payload:",
+    payload
+  );
+
   return await apiRequest(
     `/incidents/${encodeURIComponent(
       id
     )}`,
     {
       method: "PUT",
-      body: JSON.stringify(data),
+      body: JSON.stringify(
+        payload
+      ),
     }
   );
 }
+
+// ==========================================================
+// DELETE INCIDENT
+// ==========================================================
 
 export async function deleteIncident(
   id
